@@ -1,0 +1,69 @@
+name: Deploy to Amen FTP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to FTP via lftp
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # nécessaire pour `git rev-list --count`
+
+      - name: Write VERSION file (0.1.<commit-count>)
+        run: |
+          MAJOR_MINOR="0.1"
+          PATCH=$(git rev-list --count HEAD)
+          echo "${MAJOR_MINOR}.${PATCH}" > VERSION
+          echo "Version: $(cat VERSION)"
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, curl, openssl, mbstring
+          coverage: none
+
+      - name: Install Composer dependencies (production)
+        run: composer install --no-dev --optimize-autoloader --no-interaction --no-progress --prefer-dist
+
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy via lftp mirror
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          lftp -u "$FTP_USER,$FTP_PASS" "$FTP_HOST" <<'LFTP_END'
+          set ftp:ssl-allow no
+          set ftp:passive-mode true
+          set net:max-retries 5
+          set net:timeout 30
+          set net:reconnect-interval-base 5
+          set mirror:parallel-transfer-count 2
+          set xfer:clobber yes
+          mirror --reverse --verbose --continue \
+                 --exclude '^\.git/' \
+                 --exclude '^\.github/' \
+                 --exclude '^\.claude/' \
+                 --exclude-glob '.env' \
+                 --exclude-glob '.gitignore' \
+                 --exclude-glob '.gitattributes' \
+                 --exclude-glob '*.log' \
+                 --exclude-glob '.editorconfig' \
+                 --exclude-glob 'phpunit.xml*' \
+                 ./ ./
+          bye
+          LFTP_END

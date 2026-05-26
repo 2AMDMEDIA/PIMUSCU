@@ -1,0 +1,40 @@
+# Dependencies
+/vendor/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Storage
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/uploads/*
+!/storage/uploads/.gitkeep
+/storage/install.lock
+
+# User uploads — jamais committed
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# PHP
+*.log
+*.cache
+
+# Build artifacts
+/dist/
+/build/
+/VERSION
+
+# Composer
+composer.phar

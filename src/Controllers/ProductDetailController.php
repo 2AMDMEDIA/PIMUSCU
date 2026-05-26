@@ -1,0 +1,589 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Helpers\Csrf;
+use App\Helpers\JsonRescue;
+use App\Middleware\Auth;
+use App\Repositories\ClientEditorialRepository;
+use App\Repositories\ClientFieldInstructionsRepository;
+use App\Repositories\GeneratedImageRepository;
+use App\Repositories\PrestaProductCombinationRepository;
+use App\Repositories\PrestaProductRepository;
+use App\Services\AiService;
+use App\Services\ClientResolver;
+use App\Services\KieClient;
+use App\Services\PrestaShopClient;
+use App\Services\ProductPromptBuilder;
+
+final class ProductDetailController extends BaseController
+{
+    public function show(string $id): void
+    {
+        Auth::require();
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            http_response_code(404);
+            $this->renderApp('pages.errors.404', ['title' => 'Produit introuvable'], [
+                'active' => 'produits',
+                'page_title' => 'Produit introuvable',
+            ]);
+            return;
+        }
+
+        $shopUrl = rtrim($client->prestashopUrl, '/');
+        $linkRewrite = (string) ($row['link_rewrite'] ?? '');
+        $externalUrl = $linkRewrite !== '' ? $shopUrl . '/' . $row['presta_id'] . '-' . $linkRewrite . '.html' : null;
+
+        // Galerie : best-effort, échoue silencieusement si l'API Presta plante.
+        $galleryImages = [];
+        if ($client->prestashopApiKeyEncrypted !== null) {
+            try {
+                $service = new PrestaShopClient($client);
+                $imageIds = $service->fetchProductImageIds((int) $row['presta_id']);
+                foreach ($imageIds as $imageId) {
+                    $galleryImages[] = [
+                        'id' => $imageId,
+                        'thumb_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'medium_default'),
+                        'large_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'large_default'),
+                    ];
+                }
+            } catch (\Throwable) {
+                // Best-effort
+            }
+        }
+
+        $combinations = (new PrestaProductCombinationRepository())
+            ->listForProduct($client->id, (int) $row['presta_id']);
+
+        $generations = (new GeneratedImageRepository())->listForProduct($client->id, (string) $row['id'], 20);
+        $kieConfigured = (new KieClient($client))->isConfigured();
+
+        $this->renderApp('pages.produits.detail', [
+            'row' => $row,
+            'external_url' => $externalUrl,
+            'gallery_images' => $galleryImages,
+            'combinations' => $combinations,
+            'generations' => $generations,
+            'kie_configured' => $kieConfigured,
+        ], [
+            'active' => 'produits',
+            'page_title' => (string) $row['name'],
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Generation d'images IA (Kie.AI Nano Banana 2)
+    // -------------------------------------------------------------------------
+
+    /**
+     * POST AJAX : soumet une generation image. Renvoie generation_id + task_id.
+     * Le JS polle ensuite /produits/{id}/images/{generation_id}/status.
+     */
+    public function generateImage(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->json(['ok' => false, 'message' => 'Produit introuvable.'], 404);
+        }
+
+        $prompt = trim((string) ($this->input('prompt') ?? ''));
+        if ($prompt === '') {
+            $this->json(['ok' => false, 'message' => 'Prompt obligatoire.'], 400);
+        }
+
+        // Recup images source : array d'IDs Presta envoye par le JS depuis la galerie
+        $requestedIds = $_POST['image_ids'] ?? [];
+        if (!is_array($requestedIds)) {
+            $requestedIds = [];
+        }
+
+        $service = new PrestaShopClient($client);
+        if (!$service->isConfigured()) {
+            $this->json(['ok' => false, 'message' => 'Clé API PrestaShop non configurée.'], 400);
+        }
+
+        try {
+            $imageIds = $service->fetchProductImageIds((int) $row['presta_id']);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => 'Récupération images : ' . $e->getMessage()], 500);
+        }
+        if (empty($imageIds)) {
+            $this->json(['ok' => false, 'message' => 'Aucune image source sur ce produit côté Presta.'], 400);
+        }
+
+        $chosenIds = [];
+        foreach ($requestedIds as $rawId) {
+            $i = (int) $rawId;
+            if ($i > 0 && in_array($i, $imageIds, true) && !in_array($i, $chosenIds, true)) {
+                $chosenIds[] = $i;
+            }
+        }
+        if ($chosenIds === []) {
+            $chosenIds = [$imageIds[0]];
+        }
+        if (count($chosenIds) > 5) {
+            $chosenIds = array_slice($chosenIds, 0, 5);
+        }
+
+        $linkRewrite = (string) ($row['link_rewrite'] ?? '');
+        $inputUrls = array_map(
+            fn(int $imgId) => $service->buildProductImageUrl($imgId, $linkRewrite, 'large_default'),
+            $chosenIds,
+        );
+
+        $kie = new KieClient($client);
+        if (!$kie->isConfigured()) {
+            $this->json(['ok' => false, 'message' => 'Clé API Kie.AI manquante. Va dans Paramètres → Outils IA.'], 400);
+        }
+
+        $augmented = count($inputUrls) > 1
+            ? 'Generate a new product photo variation based on the ' . count($inputUrls) . ' reference product images. ' . $prompt
+            : 'Generate a new product photo variation based on the reference product image. ' . $prompt;
+
+        try {
+            $sub = $kie->submitGeneration($augmented, 1080, 1080, 'nano-banana-2', $inputUrls);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        $genId = (new GeneratedImageRepository())->create(
+            clientId: $client->id,
+            productId: (string) $row['id'],
+            prestaProductId: (int) $row['presta_id'],
+            prompt: $prompt,
+            inputUrls: $inputUrls,
+            model: $sub['model'],
+            taskId: $sub['task_id'],
+        );
+
+        $this->json([
+            'ok' => true,
+            'generation_id' => $genId,
+            'task_id' => $sub['task_id'],
+            'source_image_ids' => $chosenIds,
+        ]);
+    }
+
+    /**
+     * GET AJAX : statut d'une generation. Met a jour la DB si l'etat Kie.AI a change.
+     */
+    public function imageStatus(string $id, string $generationId): void
+    {
+        Auth::require();
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'state' => 'error', 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $repo = new GeneratedImageRepository();
+        $gen = $repo->findById($client->id, $generationId);
+        if ($gen === null || (string) $gen['product_id'] !== $id) {
+            $this->json(['ok' => false, 'state' => 'error', 'message' => 'Generation introuvable.'], 404);
+        }
+
+        // Si deja terminee, pas besoin de re-poll Kie.AI
+        if ($gen['status'] !== 'pending') {
+            $this->json([
+                'ok' => true,
+                'state' => $gen['status'],
+                'image_url' => $gen['image_url'],
+                'error' => $gen['error_message'],
+            ]);
+        }
+
+        $kie = new KieClient($client);
+        try {
+            $poll = $kie->pollStatus((string) $gen['task_id']);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'state' => 'error', 'message' => $e->getMessage()], 500);
+        }
+
+        if ($poll['state'] === 'success') {
+            $repo->updateStatus($client->id, $generationId, 'success', $poll['image_url']);
+        } elseif ($poll['state'] === 'error') {
+            $repo->updateStatus($client->id, $generationId, 'error', null, $poll['error']);
+        }
+
+        $this->json([
+            'ok' => true,
+            'state' => $poll['state'],
+            'image_url' => $poll['image_url'],
+            'error' => $poll['error'],
+        ]);
+    }
+
+    /**
+     * POST AJAX : raffine une image existante (nouvelle prompt, meme image source).
+     */
+    public function refineImage(string $id, string $generationId): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $repo = new GeneratedImageRepository();
+        $source = $repo->findById($client->id, $generationId);
+        if ($source === null || (string) $source['product_id'] !== $id) {
+            $this->json(['ok' => false, 'message' => 'Generation source introuvable.'], 404);
+        }
+        if ($source['status'] !== 'success' || empty($source['image_url'])) {
+            $this->json(['ok' => false, 'message' => 'La generation source n\'a pas d\'image.'], 400);
+        }
+
+        $prompt = trim((string) ($this->input('prompt') ?? ''));
+        if ($prompt === '') {
+            $this->json(['ok' => false, 'message' => 'Prompt obligatoire.'], 400);
+        }
+
+        $kie = new KieClient($client);
+        if (!$kie->isConfigured()) {
+            $this->json(['ok' => false, 'message' => 'Clé API Kie.AI manquante.'], 400);
+        }
+
+        // Refinement : on prend l'image generee comme seule input + le nouveau prompt
+        $inputUrls = [(string) $source['image_url']];
+        $augmented = 'Modify only the following detail of the image, keep everything else identical: ' . $prompt;
+
+        try {
+            $sub = $kie->submitGeneration($augmented, 1080, 1080, 'nano-banana-2', $inputUrls);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        $newGenId = $repo->create(
+            clientId: $client->id,
+            productId: (string) $source['product_id'],
+            prestaProductId: (int) $source['presta_product_id'],
+            prompt: '[Refinement] ' . $prompt,
+            inputUrls: $inputUrls,
+            model: $sub['model'],
+            taskId: $sub['task_id'],
+            parentGenerationId: (string) $source['id'],
+        );
+
+        $this->json([
+            'ok' => true,
+            'generation_id' => $newGenId,
+            'task_id' => $sub['task_id'],
+        ]);
+    }
+
+    /**
+     * POST AJAX : ajoute l'image generee a la galerie Presta du produit.
+     */
+    public function addImageToGallery(string $id, string $generationId): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $repo = new GeneratedImageRepository();
+        $gen = $repo->findById($client->id, $generationId);
+        if ($gen === null || (string) $gen['product_id'] !== $id) {
+            $this->json(['ok' => false, 'message' => 'Generation introuvable.'], 404);
+        }
+        if ($gen['status'] !== 'success' || empty($gen['image_url'])) {
+            $this->json(['ok' => false, 'message' => 'Pas d\'image à pousser (statut : ' . $gen['status'] . ').'], 400);
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->json(['ok' => false, 'message' => 'Produit introuvable.'], 404);
+        }
+
+        $service = new PrestaShopClient($client);
+        try {
+            $newImageId = $service->uploadProductImageFromUrl((int) $row['presta_id'], (string) $gen['image_url']);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => 'Upload Presta echec : ' . $e->getMessage()], 502);
+        }
+
+        $repo->markPushedToGallery($client->id, $generationId, $newImageId);
+
+        $this->json([
+            'ok' => true,
+            'image_id' => $newImageId,
+            'message' => 'Image ajoutee a la galerie Presta (id ' . $newImageId . ').',
+        ]);
+    }
+
+    /**
+     * POST : supprime une generation de l'historique (cache uniquement, ne touche pas Presta).
+     */
+    public function deleteImage(string $id, string $generationId): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+        (new GeneratedImageRepository())->delete($client->id, $generationId);
+        $this->flashSuccess('Generation supprimee de l\'historique.');
+        $this->redirect('/produits/' . urlencode($id));
+    }
+
+    public function saveOptimized(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $repo = new PrestaProductRepository();
+        if ($repo->findById($client->id, $id) === null) {
+            http_response_code(404);
+            echo 'Produit introuvable';
+            return;
+        }
+
+        $repo->saveOptimized(
+            clientId: $client->id,
+            id: $id,
+            descriptionShort: $this->emptyToNull($this->input('optimized_description_short')),
+            description: $this->emptyToNull($this->input('optimized_description')),
+            metaTitle: $this->emptyToNull($this->input('optimized_meta_title')),
+            metaDescription: $this->emptyToNull($this->input('optimized_meta_description')),
+        );
+
+        $this->flashSuccess('Version optimisée enregistrée.');
+        $this->redirect('/produits/' . $id);
+    }
+
+    public function push(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $repo = new PrestaProductRepository();
+        $row = $repo->findById($client->id, $id);
+        if ($row === null) {
+            http_response_code(404);
+            echo 'Produit introuvable';
+            return;
+        }
+
+        // Save first
+        $optDescShort = $this->emptyToNull($this->input('optimized_description_short'));
+        $optDesc = $this->emptyToNull($this->input('optimized_description'));
+        $optMetaTitle = $this->emptyToNull($this->input('optimized_meta_title'));
+        $optMetaDesc = $this->emptyToNull($this->input('optimized_meta_description'));
+        $optMetaKw = $this->emptyToNull($this->input('optimized_meta_keywords'));
+        $repo->saveOptimized($client->id, $id, $optDescShort, $optDesc, $optMetaTitle, $optMetaDesc, $optMetaKw);
+
+        // Une checkbox par champ : génération IA + push contrôlés par la même case.
+        $fieldsToPush = [];
+        if ($this->inputBool('enabled_description_short') && $optDescShort !== null) {
+            $fieldsToPush['description_short'] = $optDescShort;
+        }
+        if ($this->inputBool('enabled_description') && $optDesc !== null) {
+            $fieldsToPush['description'] = $optDesc;
+        }
+        if ($this->inputBool('enabled_meta_title') && $optMetaTitle !== null) {
+            $fieldsToPush['meta_title'] = $optMetaTitle;
+        }
+        if ($this->inputBool('enabled_meta_description') && $optMetaDesc !== null) {
+            $fieldsToPush['meta_description'] = $optMetaDesc;
+        }
+        if ($this->inputBool('enabled_meta_keywords') && $optMetaKw !== null) {
+            $fieldsToPush['meta_keywords'] = $optMetaKw;
+        }
+
+        if ($fieldsToPush === []) {
+            $this->flashError('Aucun champ à pousser (cochez au moins une case et remplissez la version optimisée).');
+            $this->redirect('/produits/' . $id);
+        }
+
+        $service = new PrestaShopClient($client);
+        if (!$service->isConfigured()) {
+            $this->flashError('Clé API PrestaShop non configurée.');
+            $this->redirect('/settings?tab=prestashop');
+        }
+
+        try {
+            $service->updateProductFields((int) $row['presta_id'], $fieldsToPush);
+        } catch (\Throwable $e) {
+            $this->flashError('Échec du push PrestaShop : ' . $e->getMessage());
+            $this->redirect('/produits/' . $id);
+        }
+
+        $repo->applyAfterPush(
+            $client->id,
+            $id,
+            $fieldsToPush['description_short'] ?? null,
+            $fieldsToPush['description'] ?? null,
+            $fieldsToPush['meta_title'] ?? null,
+            $fieldsToPush['meta_description'] ?? null,
+            $fieldsToPush['meta_keywords'] ?? null,
+        );
+
+        $count = count($fieldsToPush);
+        $this->flashSuccess($count . ' champ' . ($count > 1 ? 's' : '') . ' poussé' . ($count > 1 ? 's' : '') . ' sur PrestaShop.');
+        $this->redirect('/produits/' . $id);
+    }
+
+    public function generate(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->json(['ok' => false, 'message' => 'Produit introuvable.'], 404);
+        }
+
+        $userInstructions = $this->input('instructions') ?? '';
+        $wordCount = (int) ($this->input('word_count') ?? '300');
+        if ($wordCount < 50) { $wordCount = 50; }
+        if ($wordCount > 1500) { $wordCount = 1500; }
+
+        $editorial = (new ClientEditorialRepository())->get($client->id);
+        $fieldInstructions = (new ClientFieldInstructionsRepository())->getForEntity($client->id, 'product');
+
+        $prompts = (new ProductPromptBuilder($editorial))->build(
+            productName: (string) $row['name'],
+            reference: (string) ($row['reference'] ?? ''),
+            price: (float) $row['price'],
+            currentDescription: (string) ($row['description'] ?? ''),
+            currentDescriptionShort: (string) ($row['description_short'] ?? ''),
+            userInstructions: $userInstructions,
+            wordCount: $wordCount,
+            fieldInstructions: $fieldInstructions,
+        );
+
+        try {
+            $result = (new AiService($client))->generate([
+                'system_prompt' => $prompts['system_prompt'],
+                'user_prompt' => $prompts['user_prompt'],
+                'max_tokens' => 4500,
+                'temperature' => 0.7,
+                'json_mode' => true,
+                'entity_type' => 'product',
+                'entity_id' => $row['id'],
+            ]);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        $payload = JsonRescue::decode($result['text']);
+        if ($payload === null) {
+            $this->json([
+                'ok' => false,
+                'message' => 'Le modèle a renvoyé une réponse non parsable. Réessayez.',
+                'raw' => mb_substr($result['text'], 0, 2000),
+            ], 502);
+        }
+
+        $this->json([
+            'ok' => true,
+            'description_short' => $payload['description_short'] ?? '',
+            'description' => $payload['description'] ?? '',
+            'meta_title' => $payload['meta_title'] ?? '',
+            'meta_description' => $payload['meta_description'] ?? '',
+            'meta_keywords' => $payload['meta_keywords'] ?? '',
+            'debug_system_prompt' => $prompts['system_prompt'] ?? '',
+            'usage' => [
+                'model' => $result['model'],
+                'prompt_tokens' => $result['prompt_tokens'],
+                'completion_tokens' => $result['completion_tokens'],
+                'cost_eur' => $result['cost_eur'],
+            ],
+        ]);
+    }
+
+    /**
+     * AJAX : réordonne les images de la galerie produit côté PrestaShop.
+     * Reçoit en POST un tableau image_ids[] représentant le nouvel ordre.
+     */
+    public function reorderGallery(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->json(['ok' => false, 'message' => 'Produit introuvable.'], 404);
+        }
+
+        $rawIds = $_POST['image_ids'] ?? [];
+        if (!is_array($rawIds) || empty($rawIds)) {
+            $this->json(['ok' => false, 'message' => 'Ordre manquant ou invalide.'], 400);
+        }
+        $orderedIds = array_values(array_filter(array_map('intval', $rawIds), fn(int $i) => $i > 0));
+        if (empty($orderedIds)) {
+            $this->json(['ok' => false, 'message' => 'Aucun id image valide.'], 400);
+        }
+
+        $service = new PrestaShopClient($client);
+        if (!$service->isConfigured()) {
+            $this->json(['ok' => false, 'message' => 'Clé API PrestaShop non configurée.'], 400);
+        }
+
+        try {
+            $report = $service->reorderProductImages((int) $row['presta_id'], $orderedIds);
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => 'Échec réordonnancement : ' . $e->getMessage()], 502);
+        }
+
+        $this->json([
+            'ok' => true,
+            'updated' => $report['updated'],
+            'skipped' => $report['skipped'],
+            'errors' => $report['errors'],
+            'message' => $report['updated'] . ' image' . ($report['updated'] > 1 ? 's' : '') . ' réordonnée' . ($report['updated'] > 1 ? 's' : '') . '.',
+        ]);
+    }
+
+    private function emptyToNull(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $trimmed = trim($value);
+        return $trimmed === '' ? null : $trimmed;
+    }
+}

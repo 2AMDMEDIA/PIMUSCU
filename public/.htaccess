@@ -1,0 +1,40 @@
+# =============================================================================
+# PIM Musculation — règles Apache/.htaccess
+# =============================================================================
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Rediriger HTTP -> HTTPS (décommenter en prod si certificat actif)
+    # RewriteCond %{HTTPS} off
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Servir les fichiers statiques tels quels
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Toutes les autres requêtes -> index.php (front controller)
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Sécurité : interdire l'accès aux fichiers sensibles
+<FilesMatch "^(\.env|\.gitignore|composer\.(json|lock))$">
+    Require all denied
+</FilesMatch>
+
+# Désactiver l'affichage des index de répertoire
+<IfModule mod_autoindex.c>
+    Options -Indexes
+</IfModule>
+
+# Headers de sécurité basiques
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/javascript application/javascript application/json
+</IfModule>
