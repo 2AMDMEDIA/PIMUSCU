@@ -121,7 +121,7 @@ final class AiService
             apiKey: $apiKey,
             body: $body,
             authHeader: 'Authorization: Bearer ' . $apiKey,
-            extraHeaders: ['HTTP-Referer: https://github.com/2AMDMEDIA/pim-musculation', 'X-Title: PIM Musculation'],
+            extraHeaders: ['HTTP-Referer: https://github.com/2AMDMEDIA/PIMUSCU', 'X-Title: PIM Musculation'],
         );
 
         $text = $resp['choices'][0]['message']['content'] ?? '';

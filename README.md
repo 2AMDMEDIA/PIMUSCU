@@ -42,8 +42,8 @@ Version simplifiée mono-CMS de [2AMD Media Hub](https://github.com/2AMDMEDIA/2a
 
 ```bash
 # 1. Cloner le repo
-git clone https://github.com/2AMDMEDIA/pim-musculation.git
-cd pim-musculation
+git clone https://github.com/2AMDMEDIA/PIMUSCU.git
+cd PIMUSCU
 
 # 2. Installer les dépendances
 composer install --no-dev --optimize-autoloader
@@ -77,7 +77,7 @@ Pour les autres hébergeurs (déploiement manuel) :
 ## Arborescence
 
 ```
-pim-musculation/
+PIMUSCU/
 ├── public/                 # Seul dossier exposé via HTTP
 │   ├── index.php           # Front controller
 │   ├── .htaccess           # URL rewriting

@@ -6,7 +6,7 @@ Le projet se déploie automatiquement sur ton hébergement Amen à chaque push s
 
 ### 1. Ajouter les secrets GitHub
 
-Va sur https://github.com/2AMDMEDIA/pim-musculation/settings/secrets/actions et ajoute 3 secrets :
+Va sur https://github.com/2AMDMEDIA/PIMUSCU/settings/secrets/actions et ajoute 3 secrets :
 
 | Nom | Valeur |
 |---|---|
@@ -117,7 +117,7 @@ Si pour une raison X /install n'est pas accessible, tu peux toujours :
 - ✅ `.env` créé sur le serveur
 - ✅ Super-admin créé en DB
 
-Va sur https://github.com/2AMDMEDIA/pim-musculation/actions et clique sur **"Run workflow"** sur la workflow "Deploy to Amen FTPS" pour déclencher le premier déploiement (ou pousse n'importe quel commit).
+Va sur https://github.com/2AMDMEDIA/PIMUSCU/actions et clique sur **"Run workflow"** sur la workflow "Deploy to Amen FTPS" pour déclencher le premier déploiement (ou pousse n'importe quel commit).
 
 Le déploiement upload ~2-5 minutes la première fois (la suite, ~30s grâce au diff).
 
@@ -138,7 +138,7 @@ Le dossier `vendor/` **est** uploadé (généré au runtime par `composer instal
 
 ## Si quelque chose plante au déploiement
 
-1. Va sur https://github.com/2AMDMEDIA/pim-musculation/actions
+1. Va sur https://github.com/2AMDMEDIA/PIMUSCU/actions
 2. Clique sur le run rouge → tu verras le log complet (étape qui plante, message d'erreur)
 3. Les erreurs typiques :
    - **530 Login incorrect** → vérifier `FTP_USERNAME` / `FTP_PASSWORD` dans les Secrets
