@@ -421,6 +421,12 @@ final class CatalogueController extends BaseController
             $this->redirect('/catalogue');
         }
 
+        // Prefixe optionnel pour les references Presta (Settings -> Preset Reference).
+        // S'applique aux references parent + combinations. La supplier_reference reste
+        // = sku brut (pas prefixee, c'est l'identifiant Nutriweb du fournisseur).
+        $refPrefix = (string) ($client->referencePrefix ?? '');
+        $applyPrefix = fn(string $ref): string => $refPrefix . $ref;
+
         $catalogRepo = new NutriwebCatalogRepository();
         $row = $catalogRepo->findBySku($client->id, $sku);
         if ($row === null) {
@@ -469,9 +475,10 @@ final class CatalogueController extends BaseController
                 $subType = $this->input('product_sub_type') === 'with_combinations' ? 'with_combinations' : 'simple';
                 $isWithCombi = $subType === 'with_combinations';
 
-                $parentRef = $isWithCombi
+                $parentRefRaw = $isWithCombi
                     ? trim((string) ($row['permalink'] ?? $sku)) ?: $sku
                     : $sku;
+                $parentRef = $applyPrefix($parentRefRaw);
                 $parentEan = $isWithCombi ? '' : (string) ($row['barcode'] ?? '');
                 // Toujours definir le fournisseur par defaut sur le parent (id_supplier).
                 // En mode 'with_combinations', on n'ajoute pas de ligne product_supplier
@@ -521,10 +528,11 @@ final class CatalogueController extends BaseController
                 if (!$isWithCombi) {
                     // Insert minimal cote cache presta_products pour que les
                     // invalidations orphans futurs ne tuent pas le lien.
+                    // reference = avec prefixe (= ce qu'on pousse a PS) ; supplier_reference = sku brut.
                     (new PrestaProductRepository())->insertMinimal(
                         $client->id,
                         $newId,
-                        $sku,
+                        $applyPrefix($sku),
                         $sku,
                         trim((string) ($this->input('name') ?? ($row['name'] ?? $sku))),
                     );
@@ -587,10 +595,11 @@ final class CatalogueController extends BaseController
                             );
                             // Insert minimal cote caches presta_products + presta_product_combinations
                             // pour preserver le lien des futures invalidations orphans dans /catalogue/sync.
+                            // parentRef est deja prefixe ci-dessus.
                             (new PrestaProductRepository())->insertMinimal(
                                 $client->id,
                                 $newId,
-                                (string) ($row['permalink'] ?? $sku),
+                                $parentRef,
                                 null,
                                 trim((string) ($this->input('name') ?? ($row['name'] ?? $sku))),
                             );
@@ -603,7 +612,7 @@ final class CatalogueController extends BaseController
                                 $client->id,
                                 $newId,
                                 $combId,
-                                $skuToCreate,
+                                $applyPrefix($skuToCreate),
                                 (string) ($sibRow['barcode'] ?? ''),
                                 $skuToCreate,
                                 $attrsLabel !== '' ? $attrsLabel : null,
@@ -657,7 +666,7 @@ final class CatalogueController extends BaseController
 
                 $newId = $service->createCombination(
                     parentProductId: $parentId,
-                    reference: $sku,
+                    reference: $applyPrefix($sku),
                     ean13: (string) ($row['barcode'] ?? ''),
                     optionValueIds: $optionValueIds,
                     supplierId: $client->supplierId,
@@ -676,7 +685,7 @@ final class CatalogueController extends BaseController
                     $client->id,
                     $parentId,
                     $newId,
-                    $sku,
+                    $applyPrefix($sku),
                     (string) ($row['barcode'] ?? ''),
                     $sku,
                     $attrsLabel !== '' ? $attrsLabel : null,

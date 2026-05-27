@@ -90,6 +90,19 @@ use App\Helpers\Renderer;
                         et on l'affiche à côté de la référence du produit. Laisser vide pour désactiver.
                     </span>
                 </label>
+
+                <label class="field">
+                    <span class="field__label">Préfixe Référence</span>
+                    <input type="text" name="reference_prefix" maxlength="20"
+                           value="<?= Renderer::escape($client->referencePrefix ?? '') ?>"
+                           placeholder="ex: MUSCU-">
+                    <span class="field__hint">
+                        Collé devant la référence produit à la création depuis <em>Catalogue Nutriweb → Créer dans PrestaShop</em>.
+                        Ex : SKU Nutriweb <code>1004</code> + préfixe <code>MUSCU-</code> → référence Presta <code>MUSCU-1004</code>.
+                        La <code>supplier_reference</code> (côté product_supplier) reste l'identifiant brut Nutriweb sans préfixe.
+                        Laisser vide pour pousser la référence brute.
+                    </span>
+                </label>
             </div>
 
             <div id="ps-test-result" class="ps-test-result" hidden></div>

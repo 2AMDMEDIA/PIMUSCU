@@ -14,6 +14,7 @@ final class Client
         public ?string $prestashopBlogApiKeyEncrypted,
         public ?string $prestashopReviewsApiKeyEncrypted,
         public ?int $supplierId,
+        public ?string $referencePrefix,
         public ?array $enabledAttributeGroupIds,
         public ?string $logoUrl,
         public ?string $footerName,
@@ -38,6 +39,8 @@ final class Client
             prestashopBlogApiKeyEncrypted: $row['prestashop_blog_api_key_encrypted'] ?? null,
             prestashopReviewsApiKeyEncrypted: $row['prestashop_reviews_api_key_encrypted'] ?? null,
             supplierId: isset($row['supplier_id']) && $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
+            referencePrefix: isset($row['reference_prefix']) && $row['reference_prefix'] !== null && $row['reference_prefix'] !== ''
+                ? (string) $row['reference_prefix'] : null,
             enabledAttributeGroupIds: isset($row['enabled_attribute_group_ids']) && $row['enabled_attribute_group_ids'] !== null
                 ? (is_array($d = json_decode((string) $row['enabled_attribute_group_ids'], true)) ? array_map('intval', $d) : null)
                 : null,

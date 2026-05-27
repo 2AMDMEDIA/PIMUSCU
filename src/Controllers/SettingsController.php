@@ -123,6 +123,8 @@ final class SettingsController extends BaseController
         $reviewsApiKey = $this->input('prestashop_reviews_api_key');
         $reviewsApiKey = $reviewsApiKey !== null ? trim($reviewsApiKey) : null;
         $supplierIdRaw = $this->input('supplier_id');
+        $referencePrefix = $this->input('reference_prefix');
+        $referencePrefix = $referencePrefix !== null ? trim($referencePrefix) : null;
 
         $pdo = \App\Database::pdo();
 
@@ -148,6 +150,11 @@ final class SettingsController extends BaseController
             $supplierIdRaw = trim($supplierIdRaw);
             $sets[] = 'supplier_id = :supplier_id';
             $params[':supplier_id'] = ($supplierIdRaw === '' || !ctype_digit($supplierIdRaw)) ? null : (int) $supplierIdRaw;
+        }
+        // reference_prefix : idem, toujours UPDATE (peut etre vide)
+        if ($referencePrefix !== null) {
+            $sets[] = 'reference_prefix = :ref_prefix';
+            $params[':ref_prefix'] = $referencePrefix === '' ? null : mb_substr($referencePrefix, 0, 20);
         }
 
         if ($sets !== []) {
@@ -211,6 +218,7 @@ final class SettingsController extends BaseController
                 prestashopBlogApiKeyEncrypted: $client->prestashopBlogApiKeyEncrypted,
                 prestashopReviewsApiKeyEncrypted: $client->prestashopReviewsApiKeyEncrypted,
                 supplierId: $client->supplierId,
+                referencePrefix: $client->referencePrefix,
                 enabledAttributeGroupIds: $client->enabledAttributeGroupIds,
                 logoUrl: $client->logoUrl,
                 footerName: $client->footerName,
