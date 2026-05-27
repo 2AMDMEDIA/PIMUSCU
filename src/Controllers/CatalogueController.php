@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Database;
 use App\Helpers\Csrf;
 use App\Middleware\Auth;
+use App\Repositories\ClientNutriwebSettingsRepository;
 use App\Repositories\NutriwebCatalogRepository;
 use App\Repositories\PrestaProductCombinationRepository;
 use App\Repositories\PrestaProductRepository;
@@ -101,6 +102,30 @@ final class CatalogueController extends BaseController
             });
         }
 
+        // Debug info : URL qui serait appelee + diagnostic config
+        $nwSettings = (new ClientNutriwebSettingsRepository())->get($client->id);
+        $debugInfo = [
+            'configured_url' => $nwSettings['catalogue_url'] ?? '',
+            'product_info_url' => $nwSettings['product_info_url'] ?? '',
+            'key_set' => $nwSettings['private_key_encrypted'] !== null,
+            'key_length' => $nwSettings['private_key_encrypted'] !== null ? strlen((string) $nwSettings['private_key_encrypted']) : 0,
+            'full_url_masked' => '',
+        ];
+        if ($status['configured']) {
+            try {
+                // Decode la cle pour reconstruire l'URL (sans appeler l'API)
+                $key = \App\Helpers\Encryption::decrypt((string) $nwSettings['private_key_encrypted']);
+                $keyPreview = mb_substr($key, 0, 6) . '***' . mb_substr($key, -3);
+                $url = $nwSettings['catalogue_url']
+                    . (str_contains((string) $nwSettings['catalogue_url'], '?') ? '&' : '?')
+                    . 'akey=' . urlencode($keyPreview)
+                    . '&fields=sku,name,brand,price,barcode,size,color,flavor,image,purchase_price';
+                $debugInfo['full_url_masked'] = $url;
+            } catch (\Throwable $e) {
+                $debugInfo['full_url_masked'] = '⚠ Impossible de déchiffrer la clé : ' . $e->getMessage();
+            }
+        }
+
         $this->renderApp('pages.catalogue.index', [
             'configured' => $status['configured'],
             'config_message' => $status['message'] ?? null,
@@ -113,6 +138,7 @@ final class CatalogueController extends BaseController
             'sort' => $sort,
             'dir' => $dir,
             'last_synced_at' => $lastSyncedAt,
+            'debug_info' => $debugInfo,
             'stats' => [
                 'total' => $totalCount,
                 'linked' => $linkedCount,
