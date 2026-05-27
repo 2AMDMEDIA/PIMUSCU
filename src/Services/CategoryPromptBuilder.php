@@ -26,7 +26,7 @@ final class CategoryPromptBuilder
 
     /**
      * @param array<string,string> $fieldInstructions Instructions par champ (depuis Paramètres → Champs).
-     *   Clés attendues : meta_title, meta_description, meta_keywords, description, aw_description_2.
+     *   Clés attendues : meta_title, meta_description, meta_keywords, description.
      * @return array{system_prompt:string, user_prompt:string}
      */
     public function build(
@@ -34,11 +34,10 @@ final class CategoryPromptBuilder
         ?string $currentDescription,
         string $userInstructions,
         int $wordCount,
-        ?string $currentAwDescription2 = null,
         array $fieldInstructions = [],
     ): array {
         $system = $this->buildSystemPrompt($wordCount, $fieldInstructions);
-        $user = $this->buildUserPrompt($categoryName, $currentDescription, $userInstructions, $currentAwDescription2);
+        $user = $this->buildUserPrompt($categoryName, $currentDescription, $userInstructions);
         return ['system_prompt' => $system, 'user_prompt' => $user];
     }
 
@@ -88,19 +87,17 @@ Tu rédiges pour la boutique : {$media}.
 Positionnement éditorial : {$line}
 Lectorat cible : {$audience}{$forbiddenBlock}
 
-Ta mission : générer la description SEO d'une catégorie de produits e-commerce. Tu dois produire 6 éléments :
+Ta mission : générer la description SEO d'une catégorie de produits e-commerce. Tu dois produire 5 éléments :
 
 1. **name** : nom court et clair de la catégorie (3-6 mots maximum), SANS le nom du média, SANS punctuation finale. Sert de label utilisé partout sur le site (menu, breadcrumb, titre H1). Doit être plus naturel et lisible que le titre actuel s'il est médiocre. Si le nom actuel est déjà bien, garde-le quasi-identique.{$this->fieldRule($fieldInstructions, 'name')}
 
-2. **description** : description PRINCIPALE longue de ~{$wordCount} mots en HTML (utilise <p>, <h2>, <strong>, <em>, <ul>, <li>). Affichée EN HAUT de la page catégorie, au-dessus de la grille produits. Inclus le mot-clé principal dans la première phrase et dans un H2. Le ton doit être informatif, expert et orienté conversion. Sert à introduire la catégorie et capter le visiteur.{$this->fieldRule($fieldInstructions, 'description')}
+2. **description** : description longue de ~{$wordCount} mots en HTML (utilise <p>, <h2>, <strong>, <em>, <ul>, <li>). Affichée sur la page catégorie. Inclus le mot-clé principal dans la première phrase et dans un H2. Le ton doit être informatif, expert et orienté conversion.{$this->fieldRule($fieldInstructions, 'description')}
 
-3. **aw_description_2** : description COMPLÉMENTAIRE de ~{$wordCount} mots en HTML, affichée EN BAS de la page catégorie, sous la grille produits. Approfondit le sujet : guide d'achat, conseils d'utilisation, FAQ courte (avec <h3> + <p>), différences entre les produits, critères de choix. Pas de répétition de la description principale — c'est un contenu complémentaire qui renforce la longue-traîne SEO.{$this->fieldRule($fieldInstructions, 'aw_description_2')}
+3. **meta_title** : 50-60 caractères, inclut le mot-clé principal au début, accrocheur, finit avec le nom du média.{$this->fieldRule($fieldInstructions, 'meta_title')}
 
-4. **meta_title** : 50-60 caractères, inclut le mot-clé principal au début, accrocheur, finit avec le nom du média.{$this->fieldRule($fieldInstructions, 'meta_title')}
+4. **meta_description** : 150-155 caractères, résume le contenu de la catégorie avec un CTA léger ("Découvrez...", "Explorez...").{$this->fieldRule($fieldInstructions, 'meta_description')}
 
-5. **meta_description** : 150-155 caractères, résume le contenu de la catégorie avec un CTA léger ("Découvrez...", "Explorez...").{$this->fieldRule($fieldInstructions, 'meta_description')}
-
-6. **meta_keywords** : 5 à 10 mots-clés ou expressions, séparés par des virgules. Inclus le mot-clé principal, des synonymes, des variantes longue-traîne et des termes secondaires liés à l'intention de recherche. Pas de majuscules superflues, pas de répétitions. Format : "mot-clé 1, mot-clé 2, expression longue, synonyme, ..."{$this->fieldRule($fieldInstructions, 'meta_keywords')}
+5. **meta_keywords** : 5 à 10 mots-clés ou expressions, séparés par des virgules. Inclus le mot-clé principal, des synonymes, des variantes longue-traîne et des termes secondaires liés à l'intention de recherche. Pas de majuscules superflues, pas de répétitions. Format : "mot-clé 1, mot-clé 2, expression longue, synonyme, ..."{$this->fieldRule($fieldInstructions, 'meta_keywords')}
 
 Réponds UNIQUEMENT en JSON strict (pas de markdown, pas de backticks). RÈGLES CRITIQUES JSON :
 - Échappe TOUS les guillemets doubles dans le HTML avec \\" (ex: <a href=\\"...\\">)
@@ -109,8 +106,7 @@ Réponds UNIQUEMENT en JSON strict (pas de markdown, pas de backticks). RÈGLES 
 
 {
   "name": "Nom court",
-  "description": "...HTML intro...",
-  "aw_description_2": "...HTML guide/FAQ...",
+  "description": "...HTML...",
   "meta_title": "...",
   "meta_description": "...",
   "meta_keywords": "mot-clé 1, mot-clé 2, ..."
@@ -122,22 +118,14 @@ PROMPT;
         string $categoryName,
         ?string $currentDescription,
         string $userInstructions,
-        ?string $currentAwDescription2 = null,
     ): string {
         $context = "Catégorie à optimiser : **{$categoryName}**";
 
         if ($currentDescription !== null && trim(strip_tags($currentDescription)) !== '') {
             $existing = mb_substr(strip_tags($currentDescription), 0, 1500);
-            $context .= "\n\nDescription principale actuelle (à améliorer ou remplacer si médiocre) :\n{$existing}";
+            $context .= "\n\nDescription actuelle (à améliorer ou remplacer si médiocre) :\n{$existing}";
         } else {
-            $context .= "\n\nAucune description principale actuelle — pars de zéro.";
-        }
-
-        if ($currentAwDescription2 !== null && trim(strip_tags($currentAwDescription2)) !== '') {
-            $existing = mb_substr(strip_tags($currentAwDescription2), 0, 1500);
-            $context .= "\n\nDescription complémentaire actuelle (à améliorer ou remplacer) :\n{$existing}";
-        } else {
-            $context .= "\n\nAucune description complémentaire actuelle — pars de zéro pour aw_description_2.";
+            $context .= "\n\nAucune description actuelle — pars de zéro.";
         }
 
         if (trim($userInstructions) !== '') {

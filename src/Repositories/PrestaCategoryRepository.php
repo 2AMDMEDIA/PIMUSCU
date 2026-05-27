@@ -53,14 +53,12 @@ final class PrestaCategoryRepository
         ?string $metaTitle,
         ?string $metaDescription,
         ?string $metaKeywords = null,
-        ?string $awDescription2 = null,
         ?string $name = null,
     ): void {
         $stmt = $this->pdo()->prepare(
             'UPDATE presta_categories
                 SET optimized_name = :n,
                     optimized_description = :d,
-                    optimized_aw_description_2 = :ad,
                     optimized_meta_title = :mt,
                     optimized_meta_description = :md,
                     optimized_meta_keywords = :mk,
@@ -73,7 +71,6 @@ final class PrestaCategoryRepository
             ':id' => $id,
             ':n' => $name,
             ':d' => $description,
-            ':ad' => $awDescription2,
             ':mt' => $metaTitle,
             ':md' => $metaDescription,
             ':mk' => $metaKeywords,
@@ -96,7 +93,6 @@ final class PrestaCategoryRepository
         ?string $metaTitle,
         ?string $metaDescription,
         ?string $metaKeywords = null,
-        ?string $awDescription2 = null,
         ?string $name = null,
     ): void {
         $sets = [];
@@ -109,10 +105,6 @@ final class PrestaCategoryRepository
         if ($description !== null) {
             $sets[] = 'description = :d';
             $params[':d'] = $description;
-        }
-        if ($awDescription2 !== null) {
-            $sets[] = 'aw_description_2 = :ad';
-            $params[':ad'] = $awDescription2;
         }
         if ($metaTitle !== null) {
             $sets[] = 'meta_title = :mt';
@@ -141,7 +133,7 @@ final class PrestaCategoryRepository
      * Upsert d'une liste de catégories (depuis une sync Webservice).
      *
      * @param list<array{
-     *     id:int, parent_id:int, name:string, description:string, aw_description_2?:string,
+     *     id:int, parent_id:int, name:string, description:string,
      *     meta_title:string, meta_description:string, meta_keywords?:string,
      *     link_rewrite:string, active:int, is_root_category:int,
      * }> $categories
@@ -151,16 +143,15 @@ final class PrestaCategoryRepository
     public function upsertBatch(string $clientId, array $categories, array $productsCount = []): int
     {
         $sql = 'INSERT INTO presta_categories
-                  (id, client_id, presta_id, parent_id, name, description, aw_description_2, meta_title, meta_description, meta_keywords,
+                  (id, client_id, presta_id, parent_id, name, description, meta_title, meta_description, meta_keywords,
                    link_rewrite, active, products_count, synced_at)
                 VALUES
-                  (:id, :client_id, :presta_id, :parent_id, :name, :description, :aw_description_2, :meta_title, :meta_description, :meta_keywords,
+                  (:id, :client_id, :presta_id, :parent_id, :name, :description, :meta_title, :meta_description, :meta_keywords,
                    :link_rewrite, :active, :products_count, NOW())
                 ON DUPLICATE KEY UPDATE
                   parent_id = VALUES(parent_id),
                   name = VALUES(name),
                   description = VALUES(description),
-                  aw_description_2 = VALUES(aw_description_2),
                   meta_title = VALUES(meta_title),
                   meta_description = VALUES(meta_description),
                   meta_keywords = VALUES(meta_keywords),
@@ -183,7 +174,6 @@ final class PrestaCategoryRepository
                     ':parent_id' => $cat['parent_id'] ?: null,
                     ':name' => $cat['name'],
                     ':description' => $cat['description'],
-                    ':aw_description_2' => (!empty($cat['aw_description_2'])) ? $cat['aw_description_2'] : null,
                     ':meta_title' => $cat['meta_title'] !== '' ? $cat['meta_title'] : null,
                     ':meta_description' => $cat['meta_description'] !== '' ? $cat['meta_description'] : null,
                     ':meta_keywords' => (!empty($cat['meta_keywords'])) ? $cat['meta_keywords'] : null,

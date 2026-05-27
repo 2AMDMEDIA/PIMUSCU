@@ -92,10 +92,7 @@ $activeFilter = $_GET['filter'] ?? 'all';
                     <?php foreach ($tree as $node):
                         $row = $node['row'];
                         $depth = $node['depth'];
-                        // Compte les caractères des 2 descriptions (haut + bas de page)
-                        $descMainLen = mb_strlen(strip_tags((string) ($row['description'] ?? '')));
-                        $descAddLen = mb_strlen(strip_tags((string) ($row['aw_description_2'] ?? '')));
-                        $descLen = $descMainLen + $descAddLen;
+                        $descLen = mb_strlen(strip_tags((string) ($row['description'] ?? '')));
                         if ($descLen <= $thresholds['empty_max']) {
                             $descBadge = ['emoji' => '✕', 'color' => 'red', 'label' => 'Vide'];
                         } elseif ($descLen <= $thresholds['short_max']) {
@@ -103,12 +100,11 @@ $activeFilter = $_GET['filter'] ?? 'all';
                         } else {
                             $descBadge = ['emoji' => '✓', 'color' => 'green', 'label' => 'Complète'];
                         }
-                        $descTooltip = $descMainLen . ' car. (haut) + ' . $descAddLen . ' car. (bas) = ' . $descLen . ' car. total';
+                        $descTooltip = $descLen . ' caractères';
 
                         // Détection des champs optimisés (non vides) pour cette catégorie
                         $optFields = [];
                         if (!empty($row['optimized_description']))            $optFields[] = 'description';
-                        if (!empty($row['optimized_aw_description_2'])) $optFields[] = 'desc. complémentaire';
                         if (!empty($row['optimized_meta_title']))             $optFields[] = 'meta title';
                         if (!empty($row['optimized_meta_description']))       $optFields[] = 'meta description';
                         if (!empty($row['optimized_meta_keywords']))          $optFields[] = 'mots-clés';
@@ -160,7 +156,7 @@ $activeFilter = $_GET['filter'] ?? 'all';
                             <td>
                                 <?php if ($isOptimized): ?>
                                     <span class="badge badge--green" title="<?= Renderer::escape($optTooltip) ?>">
-                                        ✨ <?= $optCount ?>/5
+                                        ✨ <?= $optCount ?>/4
                                     </span>
                                 <?php else: ?>
                                     <span class="badge badge--gray" title="<?= Renderer::escape($optTooltip) ?>">
@@ -273,7 +269,6 @@ $activeFilter = $_GET['filter'] ?? 'all';
                     const sd = new FormData();
                     sd.append('_csrf', csrf);
                     sd.append('optimized_description', genJson.description || '');
-                    sd.append('optimized_aw_description_2', genJson.aw_description_2 || '');
                     sd.append('optimized_meta_title', genJson.meta_title || '');
                     sd.append('optimized_meta_description', genJson.meta_description || '');
                     sd.append('optimized_meta_keywords', genJson.meta_keywords || '');

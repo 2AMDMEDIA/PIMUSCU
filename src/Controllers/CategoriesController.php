@@ -31,9 +31,7 @@ final class CategoriesController extends BaseController
         $counts = ['all' => 0, 'complete' => 0, 'short' => 0, 'empty' => 0, 'optimized' => 0, 'not_optimized' => 0];
         foreach ($rows as $row) {
             $counts['all']++;
-            // Total = description principale + description complémentaire (bas de page)
-            $len = mb_strlen(strip_tags((string) ($row['description'] ?? '')))
-                 + mb_strlen(strip_tags((string) ($row['aw_description_2'] ?? '')));
+            $len = mb_strlen(strip_tags((string) ($row['description'] ?? '')));
             if ($len <= $emptyMax) {
                 $counts['empty']++;
             } elseif ($len <= $shortMax) {
@@ -43,7 +41,6 @@ final class CategoriesController extends BaseController
             }
 
             $hasAnyOptimized = !empty($row['optimized_description'])
-                || !empty($row['optimized_aw_description_2'])
                 || !empty($row['optimized_meta_title'])
                 || !empty($row['optimized_meta_description'])
                 || !empty($row['optimized_meta_keywords']);

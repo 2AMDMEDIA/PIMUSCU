@@ -119,10 +119,6 @@ final class ClientFieldInstructionsRepository
                         'label' => 'Description (haut de page)',
                         'hint' => 'Ex: "3-4 lignes max. Ton expert, pas de prix, mentionner le mot complément."',
                     ],
-                    'aw_description_2' => [
-                        'label' => 'Description complémentaire (bas de page)',
-                        'hint' => 'Ex: "Structurer en H3 + paragraphes courts. Inclure une FAQ de 3 questions."',
-                    ],
                 ],
             ],
             'product' => [

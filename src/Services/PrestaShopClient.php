@@ -55,18 +55,15 @@ final class PrestaShopClient
     /**
      * Récupère toutes les catégories avec les champs essentiels.
      *
-     * Note : `aw_description_2` n'est lu que si la colonne existe dans
-     * ps_category_lang (PrestaShop 9 natif OU override/module). Sinon retourne ''.
-     *
      * @return list<array{
-     *     id:int, parent_id:int, name:string, description:string, aw_description_2:string,
+     *     id:int, parent_id:int, name:string, description:string,
      *     meta_title:string, meta_description:string, meta_keywords:string,
      *     link_rewrite:string, active:int, is_root_category:int,
      * }>
      */
     public function fetchAllCategories(): array
     {
-        $display = '[id,id_parent,name,description,aw_description_2,meta_title,meta_description,meta_keywords,link_rewrite,active,is_root_category]';
+        $display = '[id,id_parent,name,description,meta_title,meta_description,meta_keywords,link_rewrite,active,is_root_category]';
         $body = $this->get('/api/categories', [
             'display' => $display,
             'limit' => '0,5000',
@@ -81,7 +78,6 @@ final class PrestaShopClient
                 'parent_id' => (int) ($row['id_parent'] ?? 0),
                 'name' => $this->extractLanguageValue($row['name'] ?? ''),
                 'description' => $this->extractLanguageValue($row['description'] ?? ''),
-                'aw_description_2' => $this->extractLanguageValue($row['aw_description_2'] ?? ''),
                 'meta_title' => $this->extractLanguageValue($row['meta_title'] ?? ''),
                 'meta_description' => $this->extractLanguageValue($row['meta_description'] ?? ''),
                 'meta_keywords' => $this->extractLanguageValue($row['meta_keywords'] ?? ''),
@@ -151,9 +147,7 @@ final class PrestaShopClient
         $category = $xml->category;
 
         // Champs cibles : pour les multilingues, on met à jour la première langue.
-        // `aw_description_2` n'est poussé que si le nœud existe déjà dans le XML
-        // (sinon = la colonne n'existe pas sur cette boutique).
-        foreach (['name', 'description', 'aw_description_2', 'meta_title', 'meta_description', 'meta_keywords'] as $field) {
+        foreach (['name', 'description', 'meta_title', 'meta_description', 'meta_keywords'] as $field) {
             if (!array_key_exists($field, $fields)) {
                 continue;
             }

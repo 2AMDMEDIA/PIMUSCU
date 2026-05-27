@@ -12,14 +12,12 @@ $prestaId = (int) $row['presta_id'];
 
 $currentName = (string) ($row['name'] ?? '');
 $currentDescription = (string) ($row['description'] ?? '');
-$currentAddDescription = (string) ($row['aw_description_2'] ?? '');
 $currentMetaTitle = (string) ($row['meta_title'] ?? '');
 $currentMetaDesc = (string) ($row['meta_description'] ?? '');
 $currentMetaKw = (string) ($row['meta_keywords'] ?? '');
 
 $optName = (string) ($row['optimized_name'] ?? '');
 $optDescription = (string) ($row['optimized_description'] ?? '');
-$optAddDescription = (string) ($row['optimized_aw_description_2'] ?? '');
 $optMetaTitle = (string) ($row['optimized_meta_title'] ?? '');
 $optMetaDesc = (string) ($row['optimized_meta_description'] ?? '');
 $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
@@ -207,45 +205,6 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
             </div>
         </section>
 
-        <!-- Description complémentaire (bas de page) -->
-        <section class="cat-pair" data-field="aw_description_2">
-            <header class="cat-pair__head">
-                <label class="cat-pair__toggle">
-                    <input type="checkbox" name="enabled_aw_description_2" value="1" checked data-field-toggle="aw_description_2">
-                    <span class="cat-pair__name">Description complémentaire</span>
-                </label>
-                <span class="cat-pair__counter">bas de page · guide d'achat, FAQ</span>
-            </header>
-            <div class="cat-pair__body">
-                <div class="cat-pair__col">
-                    <span class="cat-pair__col-label">Actuel</span>
-                    <div class="cat-detail__html cat-pair__html-current">
-                        <?php if ($currentAddDescription !== ''): ?>
-                            <?= $currentAddDescription ?>
-                        <?php else: ?>
-                            <em style="color:var(--color-text-muted);">— (vide)</em>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                <div class="cat-pair__col">
-                    <span class="cat-pair__col-label">
-                        Optimisé
-                        <button type="button" class="copy-current-btn" data-copy-current data-target="ad-input" data-source-html-b64="<?= base64_encode($currentAddDescription) ?>" title="Copier le HTML actuel">↩ Copier l'actuel</button>
-                        <span class="html-editor__tabs" data-html-editor="ad">
-                            <button type="button" class="html-editor__tab html-editor__tab--active" data-mode="preview">👁 Aperçu</button>
-                            <button type="button" class="html-editor__tab" data-mode="code">&lt;/&gt; Code</button>
-                        </span>
-                    </span>
-                    <div class="html-editor" data-target="ad-input">
-                        <div class="html-editor__preview cat-detail__html" data-preview="ad-input">
-                            <?= $optAddDescription !== '' ? $optAddDescription : '<em style="color:var(--color-text-muted);">— (vide — clique sur Code pour rédiger)</em>' ?>
-                        </div>
-                        <textarea name="optimized_aw_description_2" id="ad-input" rows="10" hidden placeholder="Guide d'achat, FAQ, conseils d'utilisation, comparatif... (HTML autorisé)"><?= Renderer::escape($optAddDescription) ?></textarea>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <!-- Actions -->
         <div class="cat-detail__actions">
             <p style="margin:0; color: var(--color-text-muted); font-size: 12px;">
@@ -351,8 +310,9 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
         preview.innerHTML = html !== '' ? html : '<em style="color:var(--color-text-muted);">— (vide — clique sur Code pour rédiger)</em>';
     }
     document.querySelectorAll('.html-editor__tabs').forEach((tabs) => {
-        const editorKey = tabs.dataset.htmlEditor; // "desc" ou "ad"
-        const targetId = editorKey === 'desc' ? 'desc-input' : 'ad-input';
+        const editorKey = tabs.dataset.htmlEditor; // "desc"
+        const targetId = editorKey === 'desc' ? 'desc-input' : null;
+        if (!targetId) return;
         const editorBox = document.querySelector('.html-editor[data-target="' + targetId + '"]');
         if (!editorBox) return;
         const preview = editorBox.querySelector('.html-editor__preview');
@@ -461,13 +421,11 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
             // Remplit uniquement les champs dont la checkbox est cochée
             const filled = [];
             const skipped = [];
-            const adEl = document.getElementById('ad-input');
             const mk = document.getElementById('mk-input');
 
             const nameEl = document.getElementById('name-input');
             if (nameEl && isFieldEnabled('name')) { nameEl.value = json.name || ''; filled.push('name'); } else if (nameEl) { skipped.push('name'); }
             if (isFieldEnabled('description'))      { descEl.value = json.description || '';        filled.push('description'); refreshPreviewFor('desc-input'); } else { skipped.push('description'); }
-            if (adEl && isFieldEnabled('aw_description_2')) { adEl.value = json.aw_description_2 || ''; filled.push('add_description'); refreshPreviewFor('ad-input'); } else if (adEl) { skipped.push('add_description'); }
             if (isFieldEnabled('meta_title'))       { mt.value = json.meta_title || '';             filled.push('meta_title'); } else { skipped.push('meta_title'); }
             if (isFieldEnabled('meta_description')) { md.value = json.meta_description || '';       filled.push('meta_description'); } else { skipped.push('meta_description'); }
             if (mk && isFieldEnabled('meta_keywords')) { mk.value = json.meta_keywords || '';       filled.push('meta_keywords'); } else if (mk) { skipped.push('meta_keywords'); }

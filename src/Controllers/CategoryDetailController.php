@@ -74,7 +74,6 @@ final class CategoryDetailController extends BaseController
             metaTitle: $this->emptyToNull($this->input('optimized_meta_title')),
             metaDescription: $this->emptyToNull($this->input('optimized_meta_description')),
             metaKeywords: $this->emptyToNull($this->input('optimized_meta_keywords')),
-            awDescription2: $this->emptyToNull($this->input('optimized_aw_description_2')),
             name: $this->emptyToNull($this->input('optimized_name')),
         );
 
@@ -103,11 +102,10 @@ final class CategoryDetailController extends BaseController
         // 1. Save first (toujours, comme spécifié — pousser = save + send)
         $optName = $this->emptyToNull($this->input('optimized_name'));
         $optDesc = $this->emptyToNull($this->input('optimized_description'));
-        $optAddDesc = $this->emptyToNull($this->input('optimized_aw_description_2'));
         $optMetaTitle = $this->emptyToNull($this->input('optimized_meta_title'));
         $optMetaDesc = $this->emptyToNull($this->input('optimized_meta_description'));
         $optMetaKeywords = $this->emptyToNull($this->input('optimized_meta_keywords'));
-        $repo->saveOptimized($client->id, $id, $optDesc, $optMetaTitle, $optMetaDesc, $optMetaKeywords, $optAddDesc, $optName);
+        $repo->saveOptimized($client->id, $id, $optDesc, $optMetaTitle, $optMetaDesc, $optMetaKeywords, $optName);
 
         // 2. Build the fields to push : 1 checkbox par champ.
         //    Une checkbox cochée + une valeur non vide = on push.
@@ -117,9 +115,6 @@ final class CategoryDetailController extends BaseController
         }
         if ($this->inputBool('enabled_description') && $optDesc !== null) {
             $fieldsToPush['description'] = $optDesc;
-        }
-        if ($this->inputBool('enabled_aw_description_2') && $optAddDesc !== null) {
-            $fieldsToPush['aw_description_2'] = $optAddDesc;
         }
         if ($this->inputBool('enabled_meta_title') && $optMetaTitle !== null) {
             $fieldsToPush['meta_title'] = $optMetaTitle;
@@ -158,7 +153,6 @@ final class CategoryDetailController extends BaseController
             $fieldsToPush['meta_title'] ?? null,
             $fieldsToPush['meta_description'] ?? null,
             $fieldsToPush['meta_keywords'] ?? null,
-            $fieldsToPush['aw_description_2'] ?? null,
             $fieldsToPush['name'] ?? null,
         );
 
@@ -200,7 +194,6 @@ final class CategoryDetailController extends BaseController
             currentDescription: (string) ($row['description'] ?? ''),
             userInstructions: $userInstructions,
             wordCount: $wordCount,
-            currentAwDescription2: (string) ($row['aw_description_2'] ?? ''),
             fieldInstructions: $fieldInstructions,
         );
 
@@ -231,7 +224,6 @@ final class CategoryDetailController extends BaseController
             'ok' => true,
             'name' => $payload['name'] ?? '',
             'description' => $payload['description'] ?? '',
-            'aw_description_2' => $payload['aw_description_2'] ?? '',
             'meta_title' => $payload['meta_title'] ?? '',
             'meta_description' => $payload['meta_description'] ?? '',
             'meta_keywords' => $payload['meta_keywords'] ?? '',
