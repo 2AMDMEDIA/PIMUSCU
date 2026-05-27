@@ -853,6 +853,7 @@ final class CatalogueController extends BaseController
             }
             // Normalise les types numeriques pour la template (qui s'attend a int/float pas string)
             $r['size_rank'] = $r['size_rank'] !== null ? (int) $r['size_rank'] : null;
+            $r['stock'] = isset($r['stock']) && $r['stock'] !== null && $r['stock'] !== '' ? (int) $r['stock'] : null;
             $r['price_base'] = $r['price_base'] !== null ? (float) $r['price_base'] : null;
             $r['price_selling'] = $r['price_selling'] !== null ? (float) $r['price_selling'] : null;
             $r['price_retail'] = $r['price_retail'] !== null ? (float) $r['price_retail'] : null;

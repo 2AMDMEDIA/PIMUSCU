@@ -20,7 +20,7 @@ final class NutriwebClient
     private string $lastCalledUrl = '';
 
     /** Champs demandés au feed catalog (controle ce qu'on receive). */
-    private const CATALOG_FIELDS = 'sku,name,brand,price,barcode,size,color,flavor,image,purchase_price';
+    private const CATALOG_FIELDS = 'sku,name,brand,price,barcode,size,color,flavor,image,purchase_price,stock';
 
     /** Suffixe et format de l'URL d'image construite : main-w1000h1000@2x.{version}.jpg */
     private const IMAGE_SIZE_SUFFIX = '-w1000h1000@2x';
@@ -70,7 +70,7 @@ final class NutriwebClient
      *     sku:string, name:string, brand:string, barcode:string,
      *     size:?string, size_rank:?int, color:?string, flavor:?string,
      *     price_base:?float, price_selling:?float, price_retail:?float,
-     *     purchase_price:?float, image_url:?string, permalink:?string,
+     *     purchase_price:?float, stock:?int, image_url:?string, permalink:?string,
      * }>
      */
     public function fetchCatalog(): array
@@ -140,6 +140,7 @@ final class NutriwebClient
                     'price_selling' => null,
                     'price_retail' => null,
                     'purchase_price' => null,
+                    'stock' => null,
                     'image_url' => null,
                     'permalink' => $permalink,
                 ];
@@ -161,6 +162,7 @@ final class NutriwebClient
                     'price_selling' => isset($price['selling']['value']) ? (float) $price['selling']['value'] : null,
                     'price_retail' => isset($price['retail']['value']) ? (float) $price['retail']['value'] : null,
                     'purchase_price' => isset($variant['purchase_price']) ? (float) $variant['purchase_price'] : null,
+                    'stock' => self::pickStock($variant['stock'] ?? null),
                     'image_url' => self::buildImageUrl($variant['image'] ?? null),
                     'permalink' => $permalink,
                 ];
@@ -199,6 +201,32 @@ final class NutriwebClient
         }
         if (is_array($value) && isset($value['value'])) {
             return (int) $value['value'];
+        }
+        return null;
+    }
+
+    /**
+     * Extrait la quantite de stock d'un variant Nutriweb. Le champ peut etre :
+     *   - un int direct (ex: 42)
+     *   - une string numerique
+     *   - un objet { value: 42 } / { available: 42 } / { quantity: 42 }
+     * Retourne null si rien d'exploitable.
+     */
+    private static function pickStock(mixed $value): ?int
+    {
+        if ($value === null) return null;
+        if (is_int($value)) return $value;
+        if (is_float($value)) return (int) $value;
+        if (is_string($value)) {
+            $t = trim($value);
+            return $t === '' ? null : (int) $t;
+        }
+        if (is_array($value)) {
+            foreach (['value', 'available', 'quantity', 'qty', 'amount'] as $k) {
+                if (isset($value[$k]) && is_scalar($value[$k])) {
+                    return (int) $value[$k];
+                }
+            }
         }
         return null;
     }

@@ -6,7 +6,7 @@ use App\Helpers\Renderer;
  * @var ?string $config_message
  * @var list<array{
  *     sku:string, name:string, brand:string, barcode:string,
- *     size:?string, color:?string, flavor:?string,
+ *     size:?string, color:?string, flavor:?string, stock:?int,
  *     price_base:?float, price_selling:?float, price_retail:?float,
  *     permalink:?string,
  *     match:?array{type:string, product_uuid:?string, presta_id:int, presta_combination_id?:int, attributes:?string, reference?:string},
@@ -113,7 +113,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
             <?php if ($debug_info['url_has_fields']): ?>
                 <span style="color:#16a34a;">✓ Déjà dans l'URL — utilisé tel quel</span>
             <?php else: ?>
-                <span style="color:var(--color-text-muted);">Ajouté automatiquement par le client (sku,name,brand,price,barcode,size,color,flavor,image,purchase_price)</span>
+                <span style="color:var(--color-text-muted);">Ajouté automatiquement par le client (sku,name,brand,price,barcode,size,color,flavor,image,purchase_price,stock)</span>
             <?php endif; ?>
         </dd>
 
@@ -245,6 +245,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                     Saveur <?= $sortArrow('flavor') ?>
                                 </a>
                             </th>
+                            <th class="catalog-table__num" title="Stock fournisseur (Nutriweb)">Stock</th>
                             <th class="catalog-table__num">Base HT</th>
                             <th class="catalog-table__num">Achat HT</th>
                             <th class="catalog-table__num">Public TTC</th>
@@ -308,6 +309,20 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                 <td><?= $fmtText($r['size']) ?></td>
                                 <td><?= $fmtText($r['color']) ?></td>
                                 <td><?= $fmtText($r['flavor']) ?></td>
+                                <td class="catalog-table__num">
+                                    <?php
+                                        $stk = $r['stock'] ?? null;
+                                        if ($stk === null) {
+                                            echo '<span style="color:var(--color-text-muted);">—</span>';
+                                        } elseif ($stk <= 0) {
+                                            echo '<span class="catalog-table__stock catalog-table__stock--out">' . (int) $stk . '</span>';
+                                        } elseif ($stk < 5) {
+                                            echo '<span class="catalog-table__stock catalog-table__stock--low">' . (int) $stk . '</span>';
+                                        } else {
+                                            echo '<span class="catalog-table__stock catalog-table__stock--ok">' . (int) $stk . '</span>';
+                                        }
+                                    ?>
+                                </td>
                                 <td class="catalog-table__num"><?= $fmtPrice($r['price_base']) ?></td>
                                 <td class="catalog-table__num"><?= $fmtPrice($r['price_selling']) ?></td>
                                 <td class="catalog-table__num"><?= $fmtPrice($r['price_retail']) ?></td>
@@ -341,6 +356,10 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
     .catalog-link--action:hover { background: #ddd6fe; }
     .catalog-table__sort { color: inherit; text-decoration: none; display: inline-block; }
     .catalog-table__sort:hover { color: var(--color-primary, #2563eb); }
+    .catalog-table__stock { display: inline-block; min-width: 32px; padding: 1px 6px; border-radius: 4px; font-size: 12px; font-weight: 600; text-align: center; }
+    .catalog-table__stock--ok { background: #dcfce7; color: #166534; }
+    .catalog-table__stock--low { background: #fef3c7; color: #92400e; }
+    .catalog-table__stock--out { background: #fee2e2; color: #991b1b; }
     </style>
     <script>
     // Lazy load image plus agressif que loading=lazy natif : IntersectionObserver

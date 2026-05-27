@@ -84,12 +84,12 @@ final class NutriwebCatalogRepository
     {
         $sql = 'INSERT INTO nutriweb_catalog
                   (id, client_id, sku, name, brand, barcode, size, size_rank,
-                   color, flavor, permalink, image_url,
+                   color, flavor, stock, permalink, image_url,
                    price_base, price_selling, price_retail, purchase_price,
                    last_synced_at)
                 VALUES
                   (:id, :client_id, :sku, :name, :brand, :barcode, :size, :size_rank,
-                   :color, :flavor, :permalink, :image_url,
+                   :color, :flavor, :stock, :permalink, :image_url,
                    :pb, :ps, :pr, :pp, NOW())
                 ON DUPLICATE KEY UPDATE
                   name = VALUES(name),
@@ -99,6 +99,7 @@ final class NutriwebCatalogRepository
                   size_rank = VALUES(size_rank),
                   color = VALUES(color),
                   flavor = VALUES(flavor),
+                  stock = VALUES(stock),
                   permalink = VALUES(permalink),
                   image_url = VALUES(image_url),
                   price_base = VALUES(price_base),
@@ -127,6 +128,7 @@ final class NutriwebCatalogRepository
                     ':size_rank' => $r['size_rank'] ?? null,
                     ':color' => $r['color'] ?? null,
                     ':flavor' => $r['flavor'] ?? null,
+                    ':stock' => $r['stock'] ?? null,
                     ':permalink' => $r['permalink'] ?? null,
                     ':image_url' => $r['image_url'] ?? null,
                     ':pb' => $r['price_base'] ?? null,
