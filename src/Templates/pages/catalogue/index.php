@@ -256,7 +256,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                 <td>
                                     <?php if (!empty($r['image_url'])): ?>
                                         <a href="<?= Renderer::escape($r['image_url']) ?>" target="_blank" rel="noopener" title="Voir en grand">
-                                            <img src="<?= Renderer::escape($r['image_url']) ?>" alt="" loading="lazy" class="catalog-table__thumb">
+                                            <img data-src="<?= Renderer::escape($r['image_url']) ?>" src="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201%201%22%2F%3E" alt="" loading="lazy" class="catalog-table__thumb lazyimg">
                                         </a>
                                     <?php else: ?>
                                         <span style="color:var(--color-text-muted); font-size:18px;">📷</span>
@@ -334,12 +334,40 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
     .catalog-link--combo:hover { background: #bfdbfe; }
     .catalog-link--none { background: #fee2e2; color: #991b1b; }
     .catalog-table__thumb { display:block; width:48px; height:48px; object-fit:cover; border-radius:4px; border:1px solid var(--color-border); background:#fff; }
+    .lazyimg:not(.lazyimg--loaded) { background: repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 4px, #e5e7eb 4px, #e5e7eb 8px); }
+    .lazyimg--loaded { transition: opacity .15s; }
     .catalog-table__ids { font-size:12px; color:var(--color-text); white-space:nowrap; }
     .catalog-link--action { background: #ede9fe; color: #5b21b6; text-decoration: none; margin-left: 4px; }
     .catalog-link--action:hover { background: #ddd6fe; }
     .catalog-table__sort { color: inherit; text-decoration: none; display: inline-block; }
     .catalog-table__sort:hover { color: var(--color-primary, #2563eb); }
     </style>
+    <script>
+    // Lazy load image plus agressif que loading=lazy natif : IntersectionObserver
+    // avec 200px d'anticipation. Swap data-src -> src au passage dans le viewport.
+    (function () {
+        var imgs = document.querySelectorAll('img.lazyimg');
+        if (imgs.length === 0) return;
+        if (!('IntersectionObserver' in window)) {
+            // Fallback : si pas d'IO, swap direct (chargement immediat)
+            imgs.forEach(function (img) { img.src = img.dataset.src; img.classList.add('lazyimg--loaded'); });
+            return;
+        }
+        var io = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+                if (!e.isIntersecting) return;
+                var img = e.target;
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                    img.removeAttribute('data-src');
+                    img.addEventListener('load', function () { img.classList.add('lazyimg--loaded'); }, { once: true });
+                }
+                io.unobserve(img);
+            });
+        }, { rootMargin: '200px 0px', threshold: 0.01 });
+        imgs.forEach(function (img) { io.observe(img); });
+    })();
+    </script>
     <?php endif; ?>
 <?php endif; ?>
 </div>
