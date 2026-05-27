@@ -9,7 +9,7 @@ use App\Helpers\Renderer;
  *     size:?string, color:?string, flavor:?string,
  *     price_base:?float, price_selling:?float, price_retail:?float,
  *     permalink:?string,
- *     match:?array{type:string, product_uuid:?string, presta_id:int, presta_combination_id?:int, attributes:?string},
+ *     match:?array{type:string, product_uuid:?string, presta_id:int, presta_combination_id?:int, attributes:?string, reference?:string},
  * }> $rows
  * @var ?string $error
  * @var string $filter
@@ -229,6 +229,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                             <th style="width:60px;">Photo</th>
                             <th>SKU</th>
                             <th>ID Presta</th>
+                            <th>Réf Presta</th>
                             <th>Lien Presta</th>
                             <th>Code-barres</th>
                             <th>Produit</th>
@@ -267,6 +268,13 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                         <code class="catalog-table__ids">
                                             <?= (int) $r['match']['presta_id'] ?><?php if (!empty($r['match']['presta_combination_id'])): ?> / <?= (int) $r['match']['presta_combination_id'] ?><?php endif; ?>
                                         </code>
+                                    <?php else: ?>
+                                        <span style="color:var(--color-text-muted);">—</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($r['match'] !== null && !empty($r['match']['reference'])): ?>
+                                        <code style="font-size:11px;"><?= Renderer::escape((string) $r['match']['reference']) ?></code>
                                     <?php else: ?>
                                         <span style="color:var(--color-text-muted);">—</span>
                                     <?php endif; ?>

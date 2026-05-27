@@ -794,30 +794,34 @@ final class CatalogueController extends BaseController
 
         $pdo = Database::pdo();
         $uuidByProductId = [];
+        $refByProductId = [];
         if ($productIds !== []) {
             $ids = array_keys($productIds);
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare(
-                'SELECT presta_id, id FROM presta_products WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
+                'SELECT presta_id, id, reference FROM presta_products WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
             );
             $stmt->execute(array_merge([$clientId], $ids));
             foreach ($stmt->fetchAll() as $r) {
                 $uuidByProductId[(int) $r['presta_id']] = (string) $r['id'];
+                $refByProductId[(int) $r['presta_id']] = (string) ($r['reference'] ?? '');
             }
         }
 
         $attrsByCombId = [];
+        $refByCombId = [];
         if ($combinationIds !== []) {
             $ids = array_keys($combinationIds);
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare(
-                'SELECT presta_combination_id, attributes_label
+                'SELECT presta_combination_id, attributes_label, reference
                    FROM presta_product_combinations
                   WHERE client_id = ? AND presta_combination_id IN (' . $placeholders . ')'
             );
             $stmt->execute(array_merge([$clientId], $ids));
             foreach ($stmt->fetchAll() as $r) {
                 $attrsByCombId[(int) $r['presta_combination_id']] = (string) ($r['attributes_label'] ?? '');
+                $refByCombId[(int) $r['presta_combination_id']] = (string) ($r['reference'] ?? '');
             }
         }
 
@@ -828,12 +832,15 @@ final class CatalogueController extends BaseController
             $pid = !empty($r['presta_product_id']) ? (int) $r['presta_product_id'] : 0;
             $match = null;
             if ($cid > 0) {
+                // Pour une decli, la ref Presta significative est celle de la combination.
+                $combRef = $refByCombId[$cid] ?? '';
                 $match = [
                     'type' => 'combination',
                     'product_uuid' => $uuidByProductId[$pid] ?? null,
                     'presta_id' => $pid,
                     'presta_combination_id' => $cid,
                     'attributes' => $attrsByCombId[$cid] ?? null,
+                    'reference' => $combRef !== '' ? $combRef : ($refByProductId[$pid] ?? ''),
                 ];
             } elseif ($pid > 0) {
                 $match = [
@@ -841,6 +848,7 @@ final class CatalogueController extends BaseController
                     'product_uuid' => $uuidByProductId[$pid] ?? null,
                     'presta_id' => $pid,
                     'attributes' => null,
+                    'reference' => $refByProductId[$pid] ?? '',
                 ];
             }
             // Normalise les types numeriques pour la template (qui s'attend a int/float pas string)
