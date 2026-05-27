@@ -234,6 +234,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                 </a>
                             </th>
                             <th>Réf Presta</th>
+                            <th title="Référence fournisseur dans la fiche produit PrestaShop">Réf Fournisseur</th>
                             <th>Lien Presta</th>
                             <th>Code-barres</th>
                             <th>Produit</th>
@@ -280,6 +281,13 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                 <td>
                                     <?php if ($r['match'] !== null && !empty($r['match']['reference'])): ?>
                                         <code style="font-size:11px;"><?= Renderer::escape((string) $r['match']['reference']) ?></code>
+                                    <?php else: ?>
+                                        <span style="color:var(--color-text-muted);">—</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if ($r['match'] !== null && !empty($r['match']['supplier_reference'])): ?>
+                                        <code style="font-size:11px;"><?= Renderer::escape((string) $r['match']['supplier_reference']) ?></code>
                                     <?php else: ?>
                                         <span style="color:var(--color-text-muted);">—</span>
                                     <?php endif; ?>
