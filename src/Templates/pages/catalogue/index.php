@@ -246,7 +246,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                 </a>
                             </th>
                             <th class="catalog-table__num">Base HT</th>
-                            <th class="catalog-table__num">Vente HT</th>
+                            <th class="catalog-table__num">Achat HT</th>
                             <th class="catalog-table__num">Public TTC</th>
                         </tr>
                     </thead>
