@@ -16,6 +16,9 @@ use RuntimeException;
  */
 final class NutriwebClient
 {
+    /** Pour debug : derniere URL appelee (avec akey). Lu via getLastCalledUrl(). */
+    private string $lastCalledUrl = '';
+
     /** Champs demandés au feed catalog (controle ce qu'on receive). */
     private const CATALOG_FIELDS = 'sku,name,brand,price,barcode,size,color,flavor,image,purchase_price';
 
@@ -26,6 +29,21 @@ final class NutriwebClient
     public function __construct(
         private readonly string $clientId,
     ) {
+    }
+
+    /**
+     * Retourne la derniere URL appelee, en masquant la cle (sûr a afficher dans le UI).
+     * Si rien n'a ete appele : '' (vide).
+     */
+    public function getMaskedLastCalledUrl(): string
+    {
+        if ($this->lastCalledUrl === '') return '';
+        // Remplace akey=XXX par akey=XXX***
+        return preg_replace(
+            '/(akey=)([^&]+)/',
+            fn($m) => $m[1] . substr($m[2], 0, 6) . '***',
+            $this->lastCalledUrl
+        ) ?? $this->lastCalledUrl;
     }
 
     /**
@@ -65,6 +83,10 @@ final class NutriwebClient
             . (str_contains($settings['catalogue_url'], '?') ? '&' : '?')
             . 'akey=' . urlencode($key)
             . '&fields=' . urlencode(self::CATALOG_FIELDS);
+
+        $this->lastCalledUrl = $url;
+        // Log la URL complete cote serveur (utile pour debug, pas exposee dans le flash)
+        error_log('NutriwebClient::fetchCatalog calling: ' . $url);
 
         $body = $this->get($url);
 

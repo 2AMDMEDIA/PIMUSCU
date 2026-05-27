@@ -188,8 +188,10 @@ final class CatalogueController extends BaseController
         // un autre feed, le shop n'a aucun produit chez le provider, JSON malforme...
         if (count($rows) === 0) {
             error_log('CatalogueController::sync fetch OK mais 0 SKU pour client=' . $client->id);
+            $maskedUrl = $nutriweb->getMaskedLastCalledUrl();
             $this->flashError(
                 'L\'API Nutriweb a répondu sans erreur mais ne contient aucun produit. '
+                . 'URL appelée : ' . $maskedUrl . ' '
                 . 'Vérifie : (1) la clé privée est associée à cette boutique, '
                 . '(2) l\'URL catalogue est correcte (Settings → Nutriweb), '
                 . '(3) le compte Nutriweb a au moins 1 produit pour ce shop.'
