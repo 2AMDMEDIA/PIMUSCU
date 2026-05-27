@@ -178,7 +178,22 @@ final class CatalogueController extends BaseController
         try {
             $rows = $nutriweb->fetchCatalog();
         } catch (\Throwable $e) {
+            error_log('CatalogueController::sync fetch FAIL: ' . $e->getMessage());
             $this->flashError('Échec du fetch Nutriweb : ' . $e->getMessage());
+            $this->redirect('/catalogue');
+        }
+
+        // Cas degenere : l'API a repondu sans erreur mais aucun SKU recupere.
+        // Causes possibles : cle privee invalide pour cette boutique, URL pointe sur
+        // un autre feed, le shop n'a aucun produit chez le provider, JSON malforme...
+        if (count($rows) === 0) {
+            error_log('CatalogueController::sync fetch OK mais 0 SKU pour client=' . $client->id);
+            $this->flashError(
+                'L\'API Nutriweb a répondu sans erreur mais ne contient aucun produit. '
+                . 'Vérifie : (1) la clé privée est associée à cette boutique, '
+                . '(2) l\'URL catalogue est correcte (Settings → Nutriweb), '
+                . '(3) le compte Nutriweb a au moins 1 produit pour ce shop.'
+            );
             $this->redirect('/catalogue');
         }
 
@@ -193,10 +208,12 @@ final class CatalogueController extends BaseController
             $deleted = $catalogRepo->deleteStale($client->id, $currentSkus);
             $catalogRepo->recomputeMatches($client->id);
         } catch (\Throwable $e) {
+            error_log('CatalogueController::sync save FAIL: ' . $e->getMessage());
             $this->flashError('Échec sauvegarde : ' . $e->getMessage());
             $this->redirect('/catalogue');
         }
 
+        error_log("CatalogueController::sync OK: client={$client->id} feed={$count} rows, upserted, deleted_stale={$deleted}");
         $msg = $count . ' SKU' . ($count > 1 ? 's' : '') . ' synchronisé' . ($count > 1 ? 's' : '') . '.';
         if ($deleted > 0) {
             $msg .= ' ' . $deleted . ' obsolète' . ($deleted > 1 ? 's' : '') . ' supprimé' . ($deleted > 1 ? 's' : '') . '.';
