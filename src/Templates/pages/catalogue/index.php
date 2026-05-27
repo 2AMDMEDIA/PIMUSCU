@@ -19,6 +19,7 @@ use App\Helpers\Renderer;
  * @var string $sort
  * @var string $dir
  * @var ?string $last_synced_at
+ * @var array{configured_url:string, product_info_url:string, key_set:bool, key_length:int, full_url_masked:string} $debug_info
  * @var array{total:int, linked:int, unlinked:int, filtered:int} $stats
  */
 $csrf = \App\Helpers\Csrf::token();
@@ -85,6 +86,47 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
         </form>
     <?php endif; ?>
 </div>
+
+<details style="margin-bottom:16px; padding:8px 12px; background:#f9fafb; border:1px solid var(--color-border); border-radius:var(--radius); font-size:12px;">
+    <summary style="cursor:pointer; font-weight:600; color:var(--color-text-muted);">🐛 Debug Nutriweb (config + URL appelée)</summary>
+    <dl style="display:grid; grid-template-columns:220px 1fr; gap:6px 14px; margin:10px 0 0;">
+        <dt><strong>URL catalogue (Settings)</strong></dt>
+        <dd><?= $debug_info['configured_url'] !== '' ? '<code>' . Renderer::escape($debug_info['configured_url']) . '</code>' : '<em style="color:#dc2626;">⚠ Non configurée</em>' ?></dd>
+
+        <dt><strong>URL infos produit</strong></dt>
+        <dd><?= $debug_info['product_info_url'] !== '' ? '<code>' . Renderer::escape($debug_info['product_info_url']) . '</code>' : '<em style="color:var(--color-text-muted);">— (optionnel)</em>' ?></dd>
+
+        <dt><strong>Clé privée</strong></dt>
+        <dd>
+            <?php if ($debug_info['key_set']): ?>
+                <span style="color:#16a34a;">✓ Configurée</span>
+                <span style="color:var(--color-text-muted);"> · longueur chiffrée: <?= $debug_info['key_length'] ?> octets</span>
+            <?php else: ?>
+                <em style="color:#dc2626;">⚠ Non configurée</em>
+            <?php endif; ?>
+        </dd>
+
+        <dt><strong>URL complète qui sera appelée</strong></dt>
+        <dd>
+            <?php if ($debug_info['full_url_masked'] !== ''): ?>
+                <code style="word-break:break-all; font-size:11px;"><?= Renderer::escape($debug_info['full_url_masked']) ?></code>
+            <?php else: ?>
+                <em style="color:var(--color-text-muted);">Configure d'abord URL + clé pour générer l'URL</em>
+            <?php endif; ?>
+        </dd>
+
+        <dt><strong>Dernière sync</strong></dt>
+        <dd><?= $lastSyncedHuman !== null ? Renderer::escape($lastSyncedHuman) : '<em style="color:#dc2626;">Jamais</em>' ?></dd>
+
+        <dt><strong>Comptage en DB</strong></dt>
+        <dd><?= $stats['total'] ?> SKUs · <?= $stats['linked'] ?> liés · <?= $stats['unlinked'] ?> non liés</dd>
+    </dl>
+    <p style="margin:10px 0 0; font-size:11px; color:var(--color-text-muted);">
+        La clé est tronquée (6 premiers + 3 derniers chars) pour ne pas exposer le secret entier dans le navigateur.
+        L'URL complète avec clé entière est loggée dans <code>error_log</code> serveur quand tu cliques Synchroniser.
+        <a href="/settings?tab=nutriweb">→ Éditer Settings → Nutriweb</a>
+    </p>
+</details>
 
 <?php if (!$configured): ?>
     <div class="card">
