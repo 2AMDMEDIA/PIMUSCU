@@ -228,7 +228,11 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                         <tr>
                             <th style="width:60px;">Photo</th>
                             <th>SKU</th>
-                            <th>ID Presta</th>
+                            <th>
+                                <a href="<?= Renderer::escape($sortHref('presta_id')) ?>" class="catalog-table__sort" title="Trier par ID Presta">
+                                    ID Presta <?= $sortArrow('presta_id') ?>
+                                </a>
+                            </th>
                             <th>Réf Presta</th>
                             <th>Lien Presta</th>
                             <th>Code-barres</th>
@@ -285,9 +289,15 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                         $m = $r['match'];
                                         $isCombo = $m['type'] === 'combination';
                                         $href = $m['product_uuid'] !== null ? '/produits/' . urlencode($m['product_uuid']) : null;
-                                        $badge = $isCombo
-                                            ? 'D#' . ($m['presta_combination_id'] ?? '?') . ($m['attributes'] !== null && $m['attributes'] !== '' ? ' (' . $m['attributes'] . ')' : '')
-                                            : 'P#' . $m['presta_id'];
+                                        $prodName = trim((string) ($m['product_name'] ?? ''));
+                                        if ($isCombo) {
+                                            // Nom produit Presta (fallback "D#xxx" si nom absent du cache)
+                                            $base = $prodName !== '' ? $prodName : ('D#' . ($m['presta_combination_id'] ?? '?'));
+                                            $attrs = $m['attributes'] !== null && $m['attributes'] !== '' ? ' (' . $m['attributes'] . ')' : '';
+                                            $badge = $base . $attrs;
+                                        } else {
+                                            $badge = $prodName !== '' ? $prodName : ('P#' . $m['presta_id']);
+                                        }
                                     ?>
                                         <?php if ($href !== null): ?>
                                             <a href="<?= Renderer::escape($href) ?>" class="catalog-link catalog-link--<?= $isCombo ? 'combo' : 'product' ?>" title="<?= Renderer::escape($isCombo ? 'Déclinaison' : 'Produit racine') ?>">

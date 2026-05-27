@@ -36,7 +36,7 @@ final class CatalogueController extends BaseController
         $search = trim((string) ($this->input('q') ?? ''));
         $brand = trim((string) ($this->input('brand') ?? ''));
         $sort = $this->input('sort') ?? '';
-        if (!in_array($sort, ['size', 'flavor'], true)) {
+        if (!in_array($sort, ['size', 'flavor', 'presta_id'], true)) {
             $sort = '';
         }
         $dir = $this->input('dir') === 'desc' ? 'desc' : 'asc';
@@ -88,6 +88,10 @@ final class CatalogueController extends BaseController
                 if ($sort === 'size') {
                     $va = $a['size_rank'] ?? null;
                     $vb = $b['size_rank'] ?? null;
+                } elseif ($sort === 'presta_id') {
+                    // Les SKUs non lies (match=null) sont relegues en queue, quel que soit dir.
+                    $va = isset($a['match']) && $a['match'] !== null ? (int) $a['match']['presta_id'] : null;
+                    $vb = isset($b['match']) && $b['match'] !== null ? (int) $b['match']['presta_id'] : null;
                 } else {
                     $va = $a['flavor'] ?? null;
                     $vb = $b['flavor'] ?? null;
@@ -795,16 +799,18 @@ final class CatalogueController extends BaseController
         $pdo = Database::pdo();
         $uuidByProductId = [];
         $refByProductId = [];
+        $nameByProductId = [];
         if ($productIds !== []) {
             $ids = array_keys($productIds);
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $stmt = $pdo->prepare(
-                'SELECT presta_id, id, reference FROM presta_products WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
+                'SELECT presta_id, id, reference, name FROM presta_products WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
             );
             $stmt->execute(array_merge([$clientId], $ids));
             foreach ($stmt->fetchAll() as $r) {
                 $uuidByProductId[(int) $r['presta_id']] = (string) $r['id'];
                 $refByProductId[(int) $r['presta_id']] = (string) ($r['reference'] ?? '');
+                $nameByProductId[(int) $r['presta_id']] = (string) ($r['name'] ?? '');
             }
         }
 
@@ -841,6 +847,7 @@ final class CatalogueController extends BaseController
                     'presta_combination_id' => $cid,
                     'attributes' => $attrsByCombId[$cid] ?? null,
                     'reference' => $combRef !== '' ? $combRef : ($refByProductId[$pid] ?? ''),
+                    'product_name' => $nameByProductId[$pid] ?? '',
                 ];
             } elseif ($pid > 0) {
                 $match = [
@@ -849,6 +856,7 @@ final class CatalogueController extends BaseController
                     'presta_id' => $pid,
                     'attributes' => null,
                     'reference' => $refByProductId[$pid] ?? '',
+                    'product_name' => $nameByProductId[$pid] ?? '',
                 ];
             }
             // Normalise les types numeriques pour la template (qui s'attend a int/float pas string)
