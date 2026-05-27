@@ -55,8 +55,10 @@ final class NutriwebClient
         if ($settings['catalogue_url'] === '') {
             return ['configured' => false, 'message' => 'URL du catalogue manquante.'];
         }
-        if ($settings['private_key_encrypted'] === null) {
-            return ['configured' => false, 'message' => 'Clé privée manquante.'];
+        // La cle peut etre dans le champ dedie OU directement dans l'URL (param akey).
+        $urlHasAkey = preg_match('/[?&]akey=/', (string) $settings['catalogue_url']) === 1;
+        if ($settings['private_key_encrypted'] === null && !$urlHasAkey) {
+            return ['configured' => false, 'message' => 'Clé privée manquante (champ dédié ou directement dans l\'URL via ?akey=...).'];
         }
         return ['configured' => true];
     }
@@ -74,15 +76,31 @@ final class NutriwebClient
     public function fetchCatalog(): array
     {
         $settings = (new ClientNutriwebSettingsRepository())->get($this->clientId);
-        if ($settings['catalogue_url'] === '' || $settings['private_key_encrypted'] === null) {
-            throw new RuntimeException('Configuration Nutriweb incomplète (URL du catalogue ou clé privée manquante).');
+        $baseUrl = (string) $settings['catalogue_url'];
+        if ($baseUrl === '') {
+            throw new RuntimeException('Configuration Nutriweb incomplète : URL du catalogue manquante.');
         }
 
-        $key = Encryption::decrypt($settings['private_key_encrypted']);
-        $url = $settings['catalogue_url']
-            . (str_contains($settings['catalogue_url'], '?') ? '&' : '?')
-            . 'akey=' . urlencode($key)
-            . '&fields=' . urlencode(self::CATALOG_FIELDS);
+        // Parse les params existants dans l'URL configuree.
+        // L'user peut avoir tout colle dedans (akey + fields) -> on n'ajoute pas de doublon.
+        parse_str((string) parse_url($baseUrl, PHP_URL_QUERY), $existingParams);
+
+        $paramsToAdd = [];
+        if (!isset($existingParams['akey'])) {
+            // Pas d'akey dans l'URL : on doit avoir la cle dans le champ dedie
+            if ($settings['private_key_encrypted'] === null) {
+                throw new RuntimeException('Configuration Nutriweb incomplète : clé privée manquante (champ dédié ou param ?akey=... dans l\'URL).');
+            }
+            $paramsToAdd['akey'] = Encryption::decrypt($settings['private_key_encrypted']);
+        }
+        if (!isset($existingParams['fields'])) {
+            $paramsToAdd['fields'] = self::CATALOG_FIELDS;
+        }
+
+        $url = $baseUrl;
+        if ($paramsToAdd !== []) {
+            $url .= (str_contains($baseUrl, '?') ? '&' : '?') . http_build_query($paramsToAdd);
+        }
 
         $this->lastCalledUrl = $url;
         // Log la URL complete cote serveur (utile pour debug, pas exposee dans le flash)

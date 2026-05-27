@@ -104,25 +104,42 @@ final class CatalogueController extends BaseController
 
         // Debug info : URL qui serait appelee + diagnostic config
         $nwSettings = (new ClientNutriwebSettingsRepository())->get($client->id);
+        $baseUrl = (string) ($nwSettings['catalogue_url'] ?? '');
+        parse_str((string) parse_url($baseUrl, PHP_URL_QUERY), $existingParams);
+        $urlHasAkey = isset($existingParams['akey']);
+        $urlHasFields = isset($existingParams['fields']);
+
         $debugInfo = [
-            'configured_url' => $nwSettings['catalogue_url'] ?? '',
+            'configured_url' => $baseUrl,
             'product_info_url' => $nwSettings['product_info_url'] ?? '',
             'key_set' => $nwSettings['private_key_encrypted'] !== null,
             'key_length' => $nwSettings['private_key_encrypted'] !== null ? strlen((string) $nwSettings['private_key_encrypted']) : 0,
+            'url_has_akey' => $urlHasAkey,
+            'url_has_fields' => $urlHasFields,
             'full_url_masked' => '',
         ];
         if ($status['configured']) {
             try {
-                // Decode la cle pour reconstruire l'URL (sans appeler l'API)
-                $key = \App\Helpers\Encryption::decrypt((string) $nwSettings['private_key_encrypted']);
-                $keyPreview = mb_substr($key, 0, 6) . '***' . mb_substr($key, -3);
-                $url = $nwSettings['catalogue_url']
-                    . (str_contains((string) $nwSettings['catalogue_url'], '?') ? '&' : '?')
-                    . 'akey=' . urlencode($keyPreview)
-                    . '&fields=sku,name,brand,price,barcode,size,color,flavor,image,purchase_price';
-                $debugInfo['full_url_masked'] = $url;
+                $paramsToAdd = [];
+                if ($urlHasAkey) {
+                    // Tronque l'akey pour le display
+                    $existingKey = (string) $existingParams['akey'];
+                    $maskedExistingKey = mb_substr($existingKey, 0, 6) . '***' . mb_substr($existingKey, -3);
+                    $maskedBaseUrl = preg_replace('/(akey=)[^&]+/', '$1' . $maskedExistingKey, $baseUrl);
+                } else {
+                    $maskedBaseUrl = $baseUrl;
+                    if ($nwSettings['private_key_encrypted'] !== null) {
+                        $key = \App\Helpers\Encryption::decrypt((string) $nwSettings['private_key_encrypted']);
+                        $paramsToAdd['akey'] = mb_substr($key, 0, 6) . '***' . mb_substr($key, -3);
+                    }
+                }
+                if (!$urlHasFields) {
+                    $paramsToAdd['fields'] = 'sku,name,brand,price,barcode,size,color,flavor,image,purchase_price';
+                }
+                $debugInfo['full_url_masked'] = $maskedBaseUrl
+                    . ($paramsToAdd !== [] ? (str_contains($maskedBaseUrl, '?') ? '&' : '?') . http_build_query($paramsToAdd) : '');
             } catch (\Throwable $e) {
-                $debugInfo['full_url_masked'] = '⚠ Impossible de déchiffrer la clé : ' . $e->getMessage();
+                $debugInfo['full_url_masked'] = '⚠ Impossible de générer l\'URL : ' . $e->getMessage();
             }
         }
 

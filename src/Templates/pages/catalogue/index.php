@@ -19,7 +19,7 @@ use App\Helpers\Renderer;
  * @var string $sort
  * @var string $dir
  * @var ?string $last_synced_at
- * @var array{configured_url:string, product_info_url:string, key_set:bool, key_length:int, full_url_masked:string} $debug_info
+ * @var array{configured_url:string, product_info_url:string, key_set:bool, key_length:int, url_has_akey:bool, url_has_fields:bool, full_url_masked:string} $debug_info
  * @var array{total:int, linked:int, unlinked:int, filtered:int} $stats
  */
 $csrf = \App\Helpers\Csrf::token();
@@ -98,11 +98,22 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
 
         <dt><strong>Clé privée</strong></dt>
         <dd>
-            <?php if ($debug_info['key_set']): ?>
-                <span style="color:#16a34a;">✓ Configurée</span>
+            <?php if ($debug_info['url_has_akey']): ?>
+                <span style="color:#16a34a;">✓ Présente dans l'URL (param <code>akey=</code>)</span>
+            <?php elseif ($debug_info['key_set']): ?>
+                <span style="color:#16a34a;">✓ Champ dédié configuré</span>
                 <span style="color:var(--color-text-muted);"> · longueur chiffrée: <?= $debug_info['key_length'] ?> octets</span>
             <?php else: ?>
-                <em style="color:#dc2626;">⚠ Non configurée</em>
+                <em style="color:#dc2626;">⚠ Non configurée (ni dans l'URL, ni dans le champ dédié)</em>
+            <?php endif; ?>
+        </dd>
+
+        <dt><strong>Param <code>fields=</code></strong></dt>
+        <dd>
+            <?php if ($debug_info['url_has_fields']): ?>
+                <span style="color:#16a34a;">✓ Déjà dans l'URL — utilisé tel quel</span>
+            <?php else: ?>
+                <span style="color:var(--color-text-muted);">Ajouté automatiquement par le client (sku,name,brand,price,barcode,size,color,flavor,image,purchase_price)</span>
             <?php endif; ?>
         </dd>
 
