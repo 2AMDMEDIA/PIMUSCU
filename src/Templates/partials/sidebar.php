@@ -22,6 +22,7 @@ if ($currentClient !== null) {
     $items[] = ['key' => 'produits',    'href' => '/produits',    'icon' => 'shopping', 'label' => 'Produits'];
     $items[] = ['key' => 'avis',        'href' => '/avis',        'icon' => 'star',     'label' => 'Avis Produit'];
     $items[] = ['key' => 'catalogue',   'href' => '/catalogue',   'icon' => 'catalogue','label' => 'Catalogue Nutriweb'];
+    $items[] = ['key' => 'controle',    'href' => '/controle',    'icon' => 'controle', 'label' => 'Contrôle'];
     $items[] = ['key' => 'settings',    'href' => '/settings',    'icon' => 'cog',      'label' => 'Paramètres'];
 }
 
@@ -39,6 +40,7 @@ function icon(string $name): string {
         'shield'   => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
         'star'     => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
         'catalogue' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>',
+        'controle'  => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     ];
     return $icons[$name] ?? '';
 }

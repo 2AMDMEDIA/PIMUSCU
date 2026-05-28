@@ -12,6 +12,7 @@ use App\Controllers\DiagnosticController;
 use App\Controllers\InstallController;
 use App\Controllers\CategoriesController;
 use App\Controllers\CategoryDetailController;
+use App\Controllers\ControleController;
 use App\Controllers\DashboardController;
 use App\Controllers\HomeController;
 use App\Controllers\ProductDetailController;
@@ -96,6 +97,10 @@ return [
     ['GET',  '/catalogue/search-presta-products', [CatalogueController::class, 'searchPrestaProducts'], true],
     ['GET',  '/catalogue/create', [CatalogueController::class, 'showCreate'], true],
     ['POST', '/catalogue/create', [CatalogueController::class, 'create'], true],
+
+    ['GET',  '/controle', [ControleController::class, 'index'], true],
+    ['POST', '/controle/fix-supplier-ref', [ControleController::class, 'fixSupplierRef'], true],
+    ['POST', '/controle/clear-sql', [ControleController::class, 'clearSqlQueue'], true],
 
     // Avis Produit (module ws_productreviews via api_reviews.php)
     ['GET',  '/avis', [AvisController::class, 'index'], true],

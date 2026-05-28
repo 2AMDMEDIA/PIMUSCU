@@ -37,6 +37,28 @@ final class PrestaProductCombinationRepository
     }
 
     /**
+     * Retourne les presta_product_id distincts qui ont au moins 1 combination,
+     * avec le nombre de combinations. Map presta_product_id => nb_combinations.
+     *
+     * @return array<int, int>
+     */
+    public function productIdsWithCombinations(string $clientId): array
+    {
+        $stmt = $this->pdo()->prepare(
+            'SELECT presta_product_id, COUNT(*) AS nb
+               FROM presta_product_combinations
+              WHERE client_id = :cid
+              GROUP BY presta_product_id'
+        );
+        $stmt->execute([':cid' => $clientId]);
+        $map = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $map[(int) $r['presta_product_id']] = (int) $r['nb'];
+        }
+        return $map;
+    }
+
+    /**
      * Supprime toutes les combinaisons d'un client (avant resync complet).
      */
     public function clearForClient(string $clientId): void

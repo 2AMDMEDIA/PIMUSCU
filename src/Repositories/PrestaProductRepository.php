@@ -15,6 +15,32 @@ final class PrestaProductRepository
         return Database::pdo();
     }
 
+    /**
+     * Récupère nom + reference + uuid pour une liste de presta_id.
+     * @param list<int> $prestaIds
+     * @return array<int, array{id:string, name:string, reference:string}> Map presta_id => infos
+     */
+    public function findByPrestaIds(string $clientId, array $prestaIds): array
+    {
+        $prestaIds = array_values(array_unique(array_filter(array_map('intval', $prestaIds), fn($i) => $i > 0)));
+        if ($prestaIds === []) return [];
+        $placeholders = implode(',', array_fill(0, count($prestaIds), '?'));
+        $stmt = $this->pdo()->prepare(
+            'SELECT id, presta_id, name, reference FROM presta_products
+              WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute(array_merge([$clientId], $prestaIds));
+        $map = [];
+        foreach ($stmt->fetchAll() as $r) {
+            $map[(int) $r['presta_id']] = [
+                'id' => (string) $r['id'],
+                'name' => (string) ($r['name'] ?? ''),
+                'reference' => (string) ($r['reference'] ?? ''),
+            ];
+        }
+        return $map;
+    }
+
     /** @return array<string,mixed>|null */
     public function findById(string $clientId, string $id): ?array
     {

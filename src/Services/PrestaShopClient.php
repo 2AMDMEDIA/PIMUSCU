@@ -682,6 +682,35 @@ final class PrestaShopClient
     }
 
     /**
+     * CONTRÔLE : retourne les id_product qui ont une ligne ps_product_supplier
+     * AU NIVEAU PRODUIT (id_product_attribute = 0) pour le fournisseur donné.
+     * Map id_product => product_supplier_reference (attr=0).
+     *
+     * @return array<int, string>
+     */
+    public function fetchProductLevelSupplierRefs(int $supplierId): array
+    {
+        if ($supplierId <= 0) return [];
+        $body = $this->get('/api/product_suppliers', [
+            'display' => '[id_product,id_product_attribute,product_supplier_reference]',
+            'filter[id_supplier]' => (string) $supplierId,
+            'filter[id_product_attribute]' => '0',
+            'limit' => '0,50000',
+        ], asJson: true);
+        $rows = $this->decodeJsonOrXml($body, 'product_suppliers', 'product_supplier');
+        unset($body);
+        $map = [];
+        foreach ($rows as $row) {
+            $attrId = (int) ($row['id_product_attribute'] ?? -1);
+            if ($attrId !== 0) continue; // securite : on ne garde QUE le niveau produit
+            $productId = (int) ($row['id_product'] ?? 0);
+            if ($productId <= 0) continue;
+            $map[$productId] = trim((string) ($row['product_supplier_reference'] ?? ''));
+        }
+        return $map;
+    }
+
+    /**
      * @param array<string,string> $query
      */
     private function get(string $path, array $query = [], bool $asJson = true): string

@@ -182,7 +182,8 @@ a:hover { text-decoration: underline; }
    (catalogue Nutriweb : beaucoup de colonnes, form de creation avec
    tableau siblings + selects par attribut, etc.). Requiert :has()
    (Chrome/Edge/Safari + Firefox 121+). Fallback : 1400px standard. */
-.app-content:has(.catalogue-fullwidth) { max-width: none; }
+.app-content:has(.catalogue-fullwidth),
+.app-content:has(.page-fullwidth) { max-width: none; }
 
 /* -----------------------------------------------------------------------------
    Sidebar
