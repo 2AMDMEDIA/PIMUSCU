@@ -59,6 +59,35 @@ final class PrestaProductCombinationRepository
     }
 
     /**
+     * CONTRÔLE : liste les déclinaisons qui ont 2 attributs ou plus.
+     * Le nombre d'attributs est dérivé de attributes_label (labels joints par ' · ')
+     * lors du sync : une décli multi-attributs contient donc au moins un séparateur.
+     * Jointe au produit parent (nom / uuid / ref) pour l'affichage.
+     *
+     * @return list<array{
+     *     presta_product_id:int, presta_combination_id:int, reference:?string,
+     *     supplier_reference:?string, attributes_label:?string,
+     *     product_uuid:?string, product_name:?string, product_reference:?string
+     * }>
+     */
+    public function listWithMultipleAttributes(string $clientId): array
+    {
+        $stmt = $this->pdo()->prepare(
+            'SELECT c.presta_product_id, c.presta_combination_id, c.reference,
+                    c.supplier_reference, c.attributes_label,
+                    p.id AS product_uuid, p.name AS product_name, p.reference AS product_reference
+               FROM presta_product_combinations c
+               LEFT JOIN presta_products p
+                 ON p.client_id = c.client_id AND p.presta_id = c.presta_product_id
+              WHERE c.client_id = :cid
+                AND c.attributes_label LIKE :sep
+              ORDER BY p.name ASC, c.attributes_label ASC'
+        );
+        $stmt->execute([':cid' => $clientId, ':sep' => '% · %']);
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Supprime toutes les combinaisons d'un client (avant resync complet).
      */
     public function clearForClient(string $clientId): void

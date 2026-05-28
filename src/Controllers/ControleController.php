@@ -120,6 +120,10 @@ final class ControleController extends BaseController
             }
         }
 
+        // Contrôle #2 : déclinaisons ayant 2 attributs ou plus (lecture cache local).
+        $multiAttrCombinations = (new PrestaProductCombinationRepository())
+            ->listWithMultipleAttributes($client->id);
+
         // File des requêtes SQL empilées via le bouton "Corriger" (jouées manuellement).
         $sqlQueue = array_values((array) Session::get(self::SQL_QUEUE_KEY, []));
 
@@ -127,6 +131,7 @@ final class ControleController extends BaseController
             'supplier_id' => $supplierId,
             'supplier_ref_misplaced' => $supplierRefMisplaced,
             'control_error' => $controlError,
+            'multi_attr_combinations' => $multiAttrCombinations,
             'sql_queue' => $sqlQueue,
         ], [
             'active' => 'controle',

@@ -5,8 +5,12 @@ use App\Helpers\Renderer;
  * @var ?int $supplier_id
  * @var ?string $control_error
  * @var list<array{id:?string, presta_id:int, name:string, reference:string, supplier_reference:string, nb_combinations:int}> $supplier_ref_misplaced
+ * @var list<array{presta_product_id:int, presta_combination_id:int, reference:?string, supplier_reference:?string, attributes_label:?string, product_uuid:?string, product_name:?string, product_reference:?string}> $multi_attr_combinations
  * @var list<string> $sql_queue
  */
+$count1 = count($supplier_ref_misplaced);
+$count2 = count($multi_attr_combinations);
+$sqlCount = count($sql_queue);
 ?>
 <div class="page-fullwidth">
 <div class="page-header">
@@ -16,10 +20,21 @@ use App\Helpers\Renderer;
     </div>
 </div>
 
+<div class="controle-tabs" role="tablist">
+    <button type="button" class="controle-tab is-active" data-tab="tab1" role="tab">
+        🏭 Réf fournisseur mal placée
+        <span class="badge <?= $count1 > 0 ? 'badge--amber' : 'badge--green' ?>"><?= $count1 ?></span>
+    </button>
+    <button type="button" class="controle-tab" data-tab="tab2" role="tab">
+        🧬 Déclinaisons à 2 attributs ou +
+        <span class="badge <?= $count2 > 0 ? 'badge--blue' : 'badge--green' ?>"><?= $count2 ?></span>
+    </button>
+</div>
+
+<?php /* ====================== ONGLET 1 ====================== */ ?>
+<section class="controle-panel is-active" id="tab1" role="tabpanel">
 <div class="controle-layout">
     <div class="controle-main">
-        <?php /* ============ Contrôle #1 : ref fournisseur au niveau produit, pas décli ============ */ ?>
-        <?php $count1 = count($supplier_ref_misplaced); ?>
         <div class="card" style="margin-bottom:20px;">
             <div class="card__header" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                 <h3 class="card__title">
@@ -95,7 +110,6 @@ use App\Helpers\Renderer;
     </div>
 
     <?php /* ============ Bloc latéral : requêtes SQL à jouer manuellement ============ */ ?>
-    <?php $sqlCount = count($sql_queue); ?>
     <aside class="controle-sql">
         <div class="card">
             <div class="card__header" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -132,6 +146,73 @@ use App\Helpers\Renderer;
         </div>
     </aside>
 </div>
+</section>
+
+<?php /* ====================== ONGLET 2 ====================== */ ?>
+<section class="controle-panel" id="tab2" role="tabpanel" hidden>
+    <div class="card">
+        <div class="card__header">
+            <h3 class="card__title">
+                🧬 Déclinaisons avec 2 attributs ou plus
+                <span class="badge <?= $count2 > 0 ? 'badge--blue' : 'badge--green' ?>" style="margin-left:8px;"><?= $count2 ?></span>
+            </h3>
+        </div>
+        <div class="card__body">
+            <p style="margin:0 0 14px; font-size:13px; color:var(--color-text-muted);">
+                Déclinaisons combinant plusieurs attributs (ex. <em>taille</em> + <em>saveur</em>).
+                Source : cache local des déclinaisons (lance <a href="/produits">Produits → Synchroniser</a> pour rafraîchir).
+            </p>
+
+            <?php if ($count2 === 0): ?>
+                <div style="padding:10px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:var(--radius); font-size:13px; color:#166534;">
+                    ✓ Aucune déclinaison multi-attributs détectée (ou cache vide — pense à synchroniser les produits).
+                </div>
+            <?php else: ?>
+                <div style="overflow-x:auto;">
+                    <table class="controle-table">
+                        <thead>
+                            <tr>
+                                <th>Produit</th>
+                                <th>ID Presta</th>
+                                <th>ID Décli</th>
+                                <th>Attributs</th>
+                                <th>Réf décli</th>
+                                <th>Réf fournisseur</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($multi_attr_combinations as $c):
+                                $attrs = (string) ($c['attributes_label'] ?? '');
+                                $nbAttrs = $attrs === '' ? 0 : count(array_filter(array_map('trim', explode(' · ', $attrs)), fn($s) => $s !== ''));
+                            ?>
+                                <tr>
+                                    <td>
+                                        <?php if (!empty($c['product_uuid'])): ?>
+                                            <a href="/produits/<?= urlencode((string) $c['product_uuid']) ?>"><?= Renderer::escape((string) ($c['product_name'] ?? ('Produit #' . (int) $c['presta_product_id']))) ?></a>
+                                        <?php else: ?>
+                                            <?= Renderer::escape((string) ($c['product_name'] ?? ('Produit #' . (int) $c['presta_product_id']))) ?>
+                                            <span style="font-size:11px; color:var(--color-text-muted);">(pas en cache — sync produits)</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><code>P#<?= (int) $c['presta_product_id'] ?></code></td>
+                                    <td><code>D#<?= (int) $c['presta_combination_id'] ?></code></td>
+                                    <td>
+                                        <?= $attrs !== '' ? Renderer::escape($attrs) : '<span style="color:var(--color-text-muted);">—</span>' ?>
+                                        <?php if ($nbAttrs > 0): ?>
+                                            <span class="badge badge--gray" style="margin-left:6px;"><?= $nbAttrs ?> attr.</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?= !empty($c['reference']) ? '<code style="font-size:11px;">' . Renderer::escape((string) $c['reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
+                                    <td><?= !empty($c['supplier_reference']) ? '<code style="font-size:11px;">' . Renderer::escape((string) $c['supplier_reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+</section>
 </div>
 
 <script>
@@ -152,9 +233,36 @@ function copyControleSql(btn) {
         done();
     }
 }
+
+// Onglets horizontaux : switch sans rechargement.
+(function () {
+    var tabs = document.querySelectorAll('.controle-tab');
+    var panels = document.querySelectorAll('.controle-panel');
+    tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+            var target = tab.getAttribute('data-tab');
+            tabs.forEach(function (t) { t.classList.toggle('is-active', t === tab); });
+            panels.forEach(function (p) {
+                var on = p.id === target;
+                p.classList.toggle('is-active', on);
+                if (on) { p.removeAttribute('hidden'); } else { p.setAttribute('hidden', ''); }
+            });
+        });
+    });
+})();
 </script>
 
 <style>
+.controle-tabs { display:flex; gap:4px; border-bottom:2px solid var(--color-border); margin-bottom:20px; flex-wrap:wrap; }
+.controle-tab {
+    appearance:none; background:none; border:none; cursor:pointer;
+    padding:10px 16px; font-size:14px; font-weight:600; color:var(--color-text-muted);
+    border-bottom:2px solid transparent; margin-bottom:-2px; display:inline-flex; align-items:center; gap:6px;
+}
+.controle-tab:hover { color:var(--color-text); }
+.controle-tab.is-active { color:var(--color-primary, #2563eb); border-bottom-color:var(--color-primary, #2563eb); }
+.controle-panel[hidden] { display:none; }
+
 .controle-layout { display:flex; gap:20px; align-items:flex-start; }
 .controle-main { flex:1; min-width:0; }
 .controle-sql { width:400px; flex-shrink:0; position:sticky; top:20px; }
