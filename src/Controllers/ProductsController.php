@@ -128,13 +128,19 @@ final class ProductsController extends BaseController
 
                 $combinationCount = $service->streamAllCombinations(function (array $batch) use ($combRepo, $client, $attributeIndex, $combSupplierRefs): void {
                     foreach ($batch as &$c) {
+                        // On garde labels + ids ALIGNES (meme ordre, 1:1) pour pouvoir
+                        // les appairer cote affichage (Controle : "Gris (id: 2152)").
                         $labels = [];
+                        $keptIds = [];
                         foreach ($c['option_value_ids'] as $valId) {
-                            if (isset($attributeIndex[$valId]['label']) && $attributeIndex[$valId]['label'] !== '') {
-                                $labels[] = $attributeIndex[$valId]['label'];
+                            $lbl = $attributeIndex[$valId]['label'] ?? '';
+                            if ($lbl !== '') {
+                                $labels[] = $lbl;
+                                $keptIds[] = (int) $valId;
                             }
                         }
                         $c['attributes_label'] = implode(' · ', $labels);
+                        $c['option_value_ids'] = $keptIds;
                         $c['supplier_reference'] = $combSupplierRefs[$c['id']] ?? null;
                     }
                     unset($c);
@@ -142,6 +148,16 @@ final class ProductsController extends BaseController
                 });
             } catch (\Throwable $e) {
                 error_log('Sync combinations failed: ' . $e->getMessage());
+            }
+
+            // Sync des promos actives : on vide, puis on applique celles dont la fenetre est ouverte.
+            $promoCount = 0;
+            try {
+                $repo->clearAllPromos($client->id);
+                $specificPrices = $service->fetchAllSpecificPrices(2000);
+                $promoCount = $repo->applyActivePromos($client->id, $specificPrices);
+            } catch (\Throwable $e) {
+                error_log('Sync promos failed: ' . $e->getMessage());
             }
 
             // Sync des stats avis (best-effort) : appel à api_reviews.php → stockage en DB.
@@ -159,6 +175,9 @@ final class ProductsController extends BaseController
             $msg = $count . ' produit' . ($count > 1 ? 's' : '') . ' synchronisé' . ($count > 1 ? 's' : '') . '.';
             if ($purgedCount > 0) {
                 $msg .= ' ' . $purgedCount . ' supprimé' . ($purgedCount > 1 ? 's' : '') . ' (orphelin' . ($purgedCount > 1 ? 's' : '') . ').';
+            }
+            if ($promoCount > 0) {
+                $msg .= ' ' . $promoCount . ' promo' . ($promoCount > 1 ? 's' : '') . ' active' . ($promoCount > 1 ? 's' : '') . '.';
             }
             if ($combinationCount > 0) {
                 $msg .= ' ' . $combinationCount . ' déclinaison' . ($combinationCount > 1 ? 's' : '') . '.';

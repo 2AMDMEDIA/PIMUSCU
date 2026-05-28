@@ -17,6 +17,37 @@ final class ControleController extends BaseController
     /** Clé session pour la file des requêtes SQL à jouer manuellement. */
     private const SQL_QUEUE_KEY = 'controle_sql_queue';
 
+    /** Lignes par page pour les tableaux de contrôle. */
+    private const PER_PAGE = 50;
+
+    /**
+     * Redirige vers /controle en préservant le contexte (onglet, page, filtres)
+     * passé en hidden fields dans les formulaires POST.
+     */
+    private function redirectBack(): void
+    {
+        $params = [];
+        if (in_array($this->input('tab'), ['2', '3'], true)) {
+            $params['tab'] = (string) $this->input('tab');
+        }
+        $page = (int) ($this->input('page') ?? 0);
+        if ($page > 1) {
+            $params['page'] = $page;
+        }
+        $q = trim((string) ($this->input('q') ?? ''));
+        if ($q !== '') {
+            $params['q'] = $q;
+        }
+        $brand = trim((string) ($this->input('brand') ?? ''));
+        if ($brand !== '') {
+            $params['brand'] = $brand;
+        }
+        if (in_array($this->input('active'), ['0', '1'], true)) {
+            $params['active'] = (string) $this->input('active');
+        }
+        $this->redirect('/controle' . ($params !== [] ? '?' . http_build_query($params) : ''));
+    }
+
     /**
      * POST : "Corriger" — n'exécute RIEN en base. Empile une requête SQL DELETE
      * (niveau produit, attr=0) dans une file en session, que l'utilisateur copie
@@ -35,7 +66,7 @@ final class ControleController extends BaseController
         $prestaId = (int) ($this->input('presta_product_id') ?? 0);
         if ($prestaId <= 0 || $client->supplierId === null || $client->supplierId <= 0) {
             $this->flashError('Paramètres invalides (produit ou fournisseur manquant).');
-            $this->redirect('/controle');
+            $this->redirectBack();
         }
 
         $supplierId = (int) $client->supplierId;
@@ -54,7 +85,47 @@ final class ControleController extends BaseController
         Session::set(self::SQL_QUEUE_KEY, $queue);
 
         $this->flashSuccess('Requête SQL ajoutée pour le produit #' . $prestaId . ' (à jouer en base).');
-        $this->redirect('/controle');
+        $this->redirectBack();
+    }
+
+    /**
+     * POST : "Supprimer attribut" (onglet 2) — n'exécute RIEN en base. Empile une
+     * requête SQL DELETE sur ps_product_attribute_combination (retire l'association
+     * d'UNE valeur d'attribut a UNE declinaison) dans la file en session.
+     */
+    public function fixCombinationAttribute(): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $idProductAttribute = (int) ($this->input('id_product_attribute') ?? 0);
+        $idAttribute = (int) ($this->input('id_attribute') ?? 0);
+        if ($idProductAttribute <= 0 || $idAttribute <= 0) {
+            $this->flashError('Paramètres invalides (id_product_attribute ou id_attribute manquant).');
+            $this->redirectBack();
+        }
+
+        $sql = sprintf(
+            'DELETE FROM `ps_product_attribute_combination` WHERE `ps_product_attribute_combination`.`id_attribute` = %d AND `ps_product_attribute_combination`.`id_product_attribute` = %d;',
+            $idAttribute,
+            $idProductAttribute
+        );
+
+        $queue = Session::get(self::SQL_QUEUE_KEY, []);
+        if (!is_array($queue)) {
+            $queue = [];
+        }
+        // Clé unique par couple (decli, attribut) → pas de doublon au reclic.
+        $queue['pac_' . $idProductAttribute . '_' . $idAttribute] = $sql;
+        Session::set(self::SQL_QUEUE_KEY, $queue);
+
+        $this->flashSuccess('Requête SQL ajoutée (déclinaison #' . $idProductAttribute . ', attribut #' . $idAttribute . ').');
+        $this->redirectBack();
     }
 
     /**
@@ -67,7 +138,7 @@ final class ControleController extends BaseController
 
         Session::forget(self::SQL_QUEUE_KEY);
         $this->flashSuccess('Liste des requêtes SQL vidée.');
-        $this->redirect('/controle');
+        $this->redirectBack();
     }
 
 
@@ -83,56 +154,126 @@ final class ControleController extends BaseController
             return;
         }
 
-        // Contrôle #1 : produits AVEC déclinaisons qui ont une ligne ps_product_supplier
-        // au niveau PRODUIT (id_product_attribute = 0) pour le fournisseur configuré.
-        // Source exacte : Webservice (filtre attr=0) croisé avec les déclinaisons locales.
-        $supplierRefMisplaced = [];
-        $controlError = null;
-        $supplierId = $client->supplierId;
+        // Onglet actif + filtres + pagination (server-side).
+        $tab = in_array($this->input('tab'), ['2', '3'], true) ? (int) $this->input('tab') : 1;
+        $page = max(1, (int) ($this->input('page') ?? 1));
+        $search = trim((string) ($this->input('q') ?? ''));
+        $brand = trim((string) ($this->input('brand') ?? ''));
+        $active = in_array($this->input('active'), ['0', '1'], true) ? (string) $this->input('active') : '';
+        $perPage = self::PER_PAGE;
+        $offset = ($page - 1) * $perPage;
 
-        if ($supplierId !== null && $supplierId > 0) {
+        $supplierId = $client->supplierId;
+        $controlError = null;
+        $combRepo = new PrestaProductCombinationRepository();
+
+        // ----- Onglet 1 : réf fournisseur mal placée (live Webservice). Calculé seulement si actif. -----
+        $supplierRefMisplaced = [];
+        $brands1 = [];
+        $total1 = 0;
+        if ($tab === 1 && $supplierId !== null && $supplierId > 0) {
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();
             }
             try {
                 $service = new PrestaShopClient($client);
-                // Map id_product => ref (lignes attr=0) — la verite cote Presta
                 $productLevelRefs = $service->fetchProductLevelSupplierRefs($supplierId);
-                // Produits qui ont des declinaisons (cache local)
-                $combiCounts = (new PrestaProductCombinationRepository())->productIdsWithCombinations($client->id);
-                // Intersection : produit AVEC declis ET ligne attr=0
+                $combiCounts = $combRepo->productIdsWithCombinations($client->id);
                 $flaggedIds = array_values(array_intersect(array_keys($productLevelRefs), array_keys($combiCounts)));
-                // Details (nom, ref, uuid) depuis le cache produit local
                 $details = (new PrestaProductRepository())->findByPrestaIds($client->id, $flaggedIds);
+
+                $all = [];
                 foreach ($flaggedIds as $pid) {
-                    $supplierRefMisplaced[] = [
+                    $all[] = [
                         'id' => $details[$pid]['id'] ?? null,
                         'presta_id' => $pid,
                         'name' => $details[$pid]['name'] ?? ('Produit #' . $pid),
                         'reference' => $details[$pid]['reference'] ?? '',
                         'supplier_reference' => $productLevelRefs[$pid] ?? '',
+                        'brand' => $details[$pid]['manufacturer_name'] ?? '',
+                        'active' => $details[$pid]['active'] ?? 1,
                         'nb_combinations' => $combiCounts[$pid] ?? 0,
                     ];
                 }
-                usort($supplierRefMisplaced, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+                // Liste des marques pour le filtre (avant filtrage).
+                foreach ($all as $r) {
+                    if ($r['brand'] !== '') $brands1[$r['brand']] = true;
+                }
+                $brands1 = array_keys($brands1);
+                sort($brands1, SORT_NATURAL | SORT_FLAG_CASE);
+
+                // Filtre recherche + marque (PHP, la source est live).
+                if ($search !== '') {
+                    $needle = mb_strtolower($search);
+                    $all = array_values(array_filter($all, fn($r) => str_contains(mb_strtolower($r['name']), $needle)
+                        || str_contains(mb_strtolower((string) $r['reference']), $needle)
+                        || str_contains(mb_strtolower((string) $r['supplier_reference']), $needle)));
+                }
+                if ($brand !== '') {
+                    $all = array_values(array_filter($all, fn($r) => (string) $r['brand'] === $brand));
+                }
+                if ($active === '1' || $active === '0') {
+                    $wantActive = (int) $active;
+                    $all = array_values(array_filter($all, fn($r) => (int) $r['active'] === $wantActive));
+                }
+                usort($all, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+
+                $total1 = count($all);
+                $supplierRefMisplaced = array_slice($all, $offset, $perPage);
             } catch (\Throwable $e) {
                 $controlError = $e->getMessage();
             }
         }
 
-        // Contrôle #2 : déclinaisons ayant 2 attributs ou plus (lecture cache local).
-        $multiAttrCombinations = (new PrestaProductCombinationRepository())
-            ->listWithMultipleAttributes($client->id);
+        // ----- Onglet 2 : déclinaisons multi-attributs (cache local, SQL paginé). -----
+        $multiAttrCombinations = [];
+        $brands2 = $combRepo->distinctBrandsWithMultipleAttributes($client->id);
+        $active2 = $tab === 2 ? $active : '';
+        $total2 = $combRepo->countWithMultipleAttributes($client->id, $tab === 2 ? $search : '', $tab === 2 ? $brand : '', $active2);
+        $distinctProducts2 = $combRepo->countDistinctProductsWithMultipleAttributes($client->id, $tab === 2 ? $search : '', $tab === 2 ? $brand : '', $active2);
+        if ($tab === 2) {
+            $multiAttrCombinations = $combRepo->listWithMultipleAttributes($client->id, $search, $brand, $perPage, $offset, $active);
+        }
 
-        // File des requêtes SQL empilées via le bouton "Corriger" (jouées manuellement).
+        // ----- Onglet 3 : produits avec exactement 1 déclinaison (cache local, SQL paginé). -----
+        $singleComboProducts = [];
+        $brands3 = $combRepo->distinctBrandsWithSingleCombination($client->id);
+        $total3 = $combRepo->countProductsWithSingleCombination($client->id, $tab === 3 ? $search : '', $tab === 3 ? $brand : '', $tab === 3 ? $active : '');
+        if ($tab === 3) {
+            $singleComboProducts = $combRepo->listProductsWithSingleCombination($client->id, $search, $brand, $perPage, $offset, $active);
+        }
+
+        // File des requêtes SQL empilées (jouées manuellement).
         $sqlQueue = array_values((array) Session::get(self::SQL_QUEUE_KEY, []));
+
+        $activeTotal = match ($tab) {
+            2 => $total2,
+            3 => $total3,
+            default => $total1,
+        };
+        $totalPages = max(1, (int) ceil($activeTotal / $perPage));
 
         $this->renderApp('pages.controle.index', [
             'supplier_id' => $supplierId,
             'supplier_ref_misplaced' => $supplierRefMisplaced,
             'control_error' => $controlError,
             'multi_attr_combinations' => $multiAttrCombinations,
+            'single_combo_products' => $singleComboProducts,
             'sql_queue' => $sqlQueue,
+            'tab' => $tab,
+            'page' => $page,
+            'per_page' => $perPage,
+            'total1' => $total1,
+            'total2' => $total2,
+            'total3' => $total3,
+            'distinct_products2' => $distinctProducts2,
+            'total_pages' => $totalPages,
+            'search' => $search,
+            'brand' => $brand,
+            'active' => $active,
+            'brands1' => $brands1,
+            'brands2' => $brands2,
+            'brands3' => $brands3,
         ], [
             'active' => 'controle',
             'page_title' => 'Contrôle',

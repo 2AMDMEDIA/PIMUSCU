@@ -83,6 +83,9 @@ return [
     ['POST', '/produits/{id}/push', [ProductDetailController::class, 'push'], true],
     ['POST', '/produits/{id}/generate', [ProductDetailController::class, 'generate'], true],
     ['POST', '/produits/{id}/gallery/reorder', [ProductDetailController::class, 'reorderGallery'], true],
+    ['POST', '/produits/{id}/compare-prices', [ProductDetailController::class, 'comparePrices'], true],
+    ['POST', '/produits/{id}/flash-promo', [ProductDetailController::class, 'createFlashPromo'], true],
+    ['POST', '/produits/{id}/flash-promo/delete', [ProductDetailController::class, 'deleteFlashPromo'], true],
 
     // Generation d'images IA (Kie.AI) par produit
     ['POST', '/produits/{id}/images/generate', [ProductDetailController::class, 'generateImage'], true],
@@ -100,6 +103,7 @@ return [
 
     ['GET',  '/controle', [ControleController::class, 'index'], true],
     ['POST', '/controle/fix-supplier-ref', [ControleController::class, 'fixSupplierRef'], true],
+    ['POST', '/controle/fix-combination-attribute', [ControleController::class, 'fixCombinationAttribute'], true],
     ['POST', '/controle/clear-sql', [ControleController::class, 'clearSqlQueue'], true],
 
     // Avis Produit (module ws_productreviews via api_reviews.php)

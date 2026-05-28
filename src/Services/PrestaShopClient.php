@@ -200,7 +200,7 @@ final class PrestaShopClient
      */
     public function fetchProductsBatch(int $offset, int $limit): array
     {
-        $display = '[id,reference,name,price,wholesale_price,active,description,description_short,'
+        $display = '[id,reference,name,manufacturer_name,price,wholesale_price,active,description,description_short,'
             . 'meta_title,meta_description,meta_keywords,link_rewrite,id_default_image,id_category_default]';
         $body = $this->get('/api/products', [
             'display' => $display,
@@ -237,6 +237,7 @@ final class PrestaShopClient
                 'id' => $productId,
                 'reference' => (string) ($row['reference'] ?? ''),
                 'name' => $this->extractLanguageValue($row['name'] ?? ''),
+                'manufacturer_name' => trim((string) ($row['manufacturer_name'] ?? '')),
                 'price' => (float) ($row['price'] ?? 0),
                 'wholesale_price' => (float) ($row['wholesale_price'] ?? 0),
                 'active' => (int) ($row['active'] ?? 1),
@@ -679,6 +680,110 @@ final class PrestaShopClient
             throw new RuntimeException('Clé API PrestaShop non configurée.');
         }
         return Encryption::decrypt($this->client->prestashopApiKeyEncrypted);
+    }
+
+    /**
+     * Liste les specific_prices actives pour un produit donné.
+     * @return list<array{id:int,reduction:float,reduction_type:string,reduction_tax:int,from:string,to:string,price:float}>
+     */
+    public function listSpecificPricesForProduct(int $productId): array
+    {
+        $body = $this->get('/api/specific_prices', [
+            'display' => '[id,id_product,reduction,reduction_type,reduction_tax,from,to,price]',
+            'filter[id_product]' => (string) $productId,
+            'limit' => '0,200',
+        ], asJson: true);
+        $rows = $this->decodeJsonOrXml($body, 'specific_prices', 'specific_price');
+        $result = [];
+        foreach ($rows as $row) {
+            $result[] = [
+                'id' => (int) ($row['id'] ?? 0),
+                'reduction' => (float) ($row['reduction'] ?? 0),
+                'reduction_type' => (string) ($row['reduction_type'] ?? 'percentage'),
+                'reduction_tax' => (int) ($row['reduction_tax'] ?? 1),
+                'from' => (string) ($row['from'] ?? ''),
+                'to' => (string) ($row['to'] ?? ''),
+                'price' => (float) ($row['price'] ?? -1),
+            ];
+        }
+        return $result;
+    }
+
+    /**
+     * Liste toutes les specific_prices du shop (tous produits confondus).
+     * @return list<array{id:int, id_product:int, reduction:float, reduction_type:string, reduction_tax:int, from:string, to:string, price:float}>
+     */
+    public function fetchAllSpecificPrices(int $limit = 500): array
+    {
+        $body = $this->get('/api/specific_prices', [
+            'display' => '[id,id_product,reduction,reduction_type,reduction_tax,from,to,price]',
+            'limit' => '0,' . $limit,
+        ], asJson: true);
+        $rows = $this->decodeJsonOrXml($body, 'specific_prices', 'specific_price');
+        $result = [];
+        foreach ($rows as $row) {
+            $result[] = [
+                'id' => (int) ($row['id'] ?? 0),
+                'id_product' => (int) ($row['id_product'] ?? 0),
+                'reduction' => (float) ($row['reduction'] ?? 0),
+                'reduction_type' => (string) ($row['reduction_type'] ?? 'percentage'),
+                'reduction_tax' => (int) ($row['reduction_tax'] ?? 1),
+                'from' => (string) ($row['from'] ?? ''),
+                'to' => (string) ($row['to'] ?? ''),
+                'price' => (float) ($row['price'] ?? -1),
+            ];
+        }
+        return $result;
+    }
+
+    /** Supprime une specific_price par son id. */
+    public function deleteSpecificPrice(int $id): void
+    {
+        $this->delete('/api/specific_prices/' . $id);
+    }
+
+    /**
+     * Crée une nouvelle specific_price (promo flash).
+     * @param array{id_product:int, reduction:float, reduction_type:'percentage'|'amount', from:string, to:string} $fields
+     * @return int L'id Presta de la specific_price créée
+     */
+    public function createSpecificPrice(array $fields): int
+    {
+        $reduction = number_format($fields['reduction'], 6, '.', '');
+        $xml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<prestashop xmlns:xlink="http://www.w3.org/1999/xlink">
+    <specific_price>
+        <id_specific_price_rule>0</id_specific_price_rule>
+        <id_cart>0</id_cart>
+        <id_product>{$fields['id_product']}</id_product>
+        <id_shop>1</id_shop>
+        <id_shop_group>0</id_shop_group>
+        <id_currency>0</id_currency>
+        <id_country>0</id_country>
+        <id_group>0</id_group>
+        <id_customer>0</id_customer>
+        <id_product_attribute>0</id_product_attribute>
+        <price>-1</price>
+        <from_quantity>1</from_quantity>
+        <reduction>{$reduction}</reduction>
+        <reduction_tax>1</reduction_tax>
+        <reduction_type>{$fields['reduction_type']}</reduction_type>
+        <from>{$fields['from']}</from>
+        <to>{$fields['to']}</to>
+    </specific_price>
+</prestashop>
+XML;
+        $body = $this->post('/api/specific_prices', $xml);
+        $xmlResp = @simplexml_load_string($body);
+        if ($xmlResp === false) {
+            throw new RuntimeException('Réponse Presta invalide après création specific_price.');
+        }
+        $id = isset($xmlResp->specific_price->id) ? (int) $xmlResp->specific_price->id : 0;
+        if ($id === 0) {
+            throw new RuntimeException('Impossible de récupérer l\'id de la specific_price créée.');
+        }
+        return $id;
     }
 
     /**

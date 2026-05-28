@@ -73,6 +73,15 @@ final class AiProviders
                 'description' => 'Génération d\'images (text → image) pour les visuels secondaires des produits.',
                 'placeholder' => '...',
             ],
+            // Search / data
+            [
+                'id' => 'serpapi',
+                'name' => 'SerpApi (Google Shopping)',
+                'category' => 'image', // pas de categorie dediee, affiche avec les outils image dans Settings
+                'recommended' => false,
+                'description' => 'Veille concurrentielle : recherche de prix temps réel sur Google Shopping (France) pour le bouton "Étude de prix" sur les fiches produit.',
+                'placeholder' => 'serpapi-key-...',
+            ],
         ];
     }
 

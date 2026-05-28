@@ -30,6 +30,7 @@ $optMetaTitle = (string) ($row['optimized_meta_title'] ?? '');
 $optMetaDesc = (string) ($row['optimized_meta_description'] ?? '');
 $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
 ?>
+<div class="page-fullwidth">
 <div class="product-detail-header">
     <?php if (!empty($row['image_url'])): ?>
         <a href="<?= Renderer::escape($external_url ?? $row['image_url']) ?>"
@@ -112,6 +113,15 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
     </div>
 <?php endif; ?>
 
+<nav class="prod-tabs" role="tablist">
+    <button type="button" class="prod-tabs__item prod-tabs__item--active" data-tab-target="description">📝 Description</button>
+    <button type="button" class="prod-tabs__item" data-tab-target="prix">💰 Prix</button>
+    <button type="button" class="prod-tabs__item" data-tab-target="avis">⭐ Avis</button>
+    <button type="button" class="prod-tabs__item" data-tab-target="galerie">🖼 Galerie</button>
+    <button type="button" class="prod-tabs__item" data-tab-target="declinaisons">🎨 Déclinaisons<?= !empty($combinations) ? ' (' . count($combinations) . ')' : '' ?></button>
+</nav>
+
+<section class="prod-tab" data-tab="declinaisons" hidden>
 <?php if (!empty($combinations)): ?>
     <div class="card" style="margin-bottom: 20px;">
         <div class="card__header" style="display:flex; justify-content:space-between; align-items:center;">
@@ -154,8 +164,125 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
     .combinations-table tbody tr:hover { background: var(--color-bg); }
     .combinations-table code { font-size: 12px; }
     </style>
+<?php else: ?>
+    <div class="card"><div class="card__body"><div class="empty-state"><div class="empty-state__hint">Aucune déclinaison sur ce produit (produit simple).</div></div></div></div>
 <?php endif; ?>
+</section>
 
+<?php
+    // ---- Panel PRIX : promo flash + etude de prix SerpApi ----
+    $priceTTC = (float) ($row['price'] ?? 0) * 1.20;
+    $promoDateFrom = date('Y-m-d');
+    $promoDateTo = date('Y-m-d', strtotime('+7 days'));
+?>
+<section class="prod-tab" data-tab="prix" hidden>
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card__header"><h3 class="card__title">⚡ Promo flash</h3></div>
+        <div class="card__body">
+            <p style="margin:0 0 12px; font-size:13px; color:var(--color-text-muted);">
+                Crée une <code>specific_price</code> PrestaShop (prix barré + nouveau prix sur la fiche). Prix actuel : <strong><?= number_format($priceTTC, 2, ',', ' ') ?> € TTC</strong>.
+            </p>
+            <?php if (!empty($active_promos)): ?>
+                <div style="margin-bottom:12px; padding:10px 12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:var(--radius); font-size:13px;">
+                    <strong><?= count($active_promos) ?> promo(s) active(s)</strong> sur ce produit :
+                    <ul style="margin:6px 0 0; padding-left:18px;">
+                        <?php foreach ($active_promos as $p):
+                            $lbl = $p['reduction_type'] === 'percentage'
+                                ? '-' . number_format($p['reduction'] * 100, 1, ',', ' ') . ' %'
+                                : '-' . number_format($p['reduction'], 2, ',', ' ') . ' € (' . ($p['reduction_tax'] ? 'TTC' : 'HT') . ')';
+                            $du = $p['from'] !== '' && !str_starts_with($p['from'], '0000') ? date('d/m/Y', strtotime($p['from'])) : '∞';
+                            $au = $p['to'] !== '' && !str_starts_with($p['to'], '0000') ? date('d/m/Y', strtotime($p['to'])) : '∞';
+                        ?>
+                            <li><?= Renderer::escape($lbl) ?> · du <?= $du ?> au <?= $au ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/flash-promo/delete" style="margin:8px 0 0;" onsubmit="return confirm('Supprimer toutes les promos actives de ce produit ?');">
+                        <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                        <button type="submit" class="btn btn--ghost btn--sm">🗑 Supprimer les promos</button>
+                    </form>
+                </div>
+            <?php endif; ?>
+            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/flash-promo">
+                <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:12px; align-items:end;">
+                    <label class="field" style="margin:0;">
+                        <span class="field__label">Nouveau prix TTC (€)</span>
+                        <input type="text" name="new_price_ttc" inputmode="decimal" placeholder="ex: 59,90">
+                    </label>
+                    <div style="text-align:center; color:var(--color-text-muted); font-size:12px; padding-bottom:8px;">— OU —</div>
+                    <label class="field" style="margin:0;">
+                        <span class="field__label">Remise (%)</span>
+                        <input type="text" name="discount_pct" inputmode="decimal" placeholder="ex: 20">
+                    </label>
+                    <label class="field" style="margin:0;">
+                        <span class="field__label">Du</span>
+                        <input type="date" name="date_from" value="<?= $promoDateFrom ?>">
+                    </label>
+                    <label class="field" style="margin:0;">
+                        <span class="field__label">Au</span>
+                        <input type="date" name="date_to" value="<?= $promoDateTo ?>">
+                    </label>
+                </div>
+                <div style="margin-top:12px; text-align:right;">
+                    <button type="submit" class="btn btn--primary">Créer la promo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card__header" style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <h3 class="card__title">📊 Étude de prix concurrentielle</h3>
+            <button type="button" id="cp-btn" class="btn btn--primary btn--sm" data-product-id="<?= Renderer::escape($row['id']) ?>">
+                <span class="btn-label">🔍 Comparer les prix</span>
+                <span class="btn-spinner" hidden>Recherche… (10-20s)</span>
+            </button>
+        </div>
+        <div class="card__body">
+            <p style="margin:0 0 10px; font-size:12px; color:var(--color-text-muted);">
+                Recherche les prix concurrents sur Google Shopping France (via SerpApi). <a href="/settings?tab=ai-tools">Configurer la clé SerpApi</a>.
+            </p>
+            <div id="cp-status" style="font-size:13px; margin-bottom:10px;"></div>
+            <div id="cp-result" <?= $price_analysis === null ? 'hidden' : '' ?>>
+                <?php if ($price_analysis !== null): ?>
+                    <div id="cp-summary" style="padding:10px 12px; background:var(--color-bg); border-radius:var(--radius); font-size:13px; margin-bottom:10px;">
+                        <?= Renderer::escape($price_analysis['summary']) ?>
+                        <div style="font-size:11px; color:var(--color-text-muted); margin-top:4px;">Dernière analyse : <?= date('d/m/Y H:i', strtotime($price_analysis['created_at'])) ?></div>
+                    </div>
+                    <div id="cp-stats" style="display:flex; gap:18px; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
+                        <span>Moy. <strong><?= $price_analysis['avg_price_eur'] !== null ? number_format($price_analysis['avg_price_eur'], 2, ',', ' ') . ' €' : '—' ?></strong></span>
+                        <span>Min <strong><?= $price_analysis['min_price_eur'] !== null ? number_format($price_analysis['min_price_eur'], 2, ',', ' ') . ' €' : '—' ?></strong></span>
+                        <span>Max <strong><?= $price_analysis['max_price_eur'] !== null ? number_format($price_analysis['max_price_eur'], 2, ',', ' ') . ' €' : '—' ?></strong></span>
+                        <span>Médiane <strong><?= $price_analysis['median_price_eur'] !== null ? number_format($price_analysis['median_price_eur'], 2, ',', ' ') . ' €' : '—' ?></strong></span>
+                    </div>
+                    <div id="cp-rows">
+                        <table class="cp-table">
+                            <thead><tr><th>Marchand</th><th>Produit</th><th class="catalog-table__num">Prix</th></tr></thead>
+                            <tbody>
+                                <?php foreach ($price_analysis['results'] as $res): ?>
+                                    <tr>
+                                        <td><?= Renderer::escape((string) ($res['site'] ?? '—')) ?></td>
+                                        <td><?php $u = $res['url'] ?? null; $nm = (string) ($res['name'] ?? ''); ?>
+                                            <?= $u ? '<a href="' . Renderer::escape((string) $u) . '" target="_blank" rel="noopener">' . Renderer::escape($nm) . '</a>' : Renderer::escape($nm) ?>
+                                        </td>
+                                        <td class="catalog-table__num"><?= isset($res['price_eur']) && $res['price_eur'] !== null ? number_format((float) $res['price_eur'], 2, ',', ' ') . ' €' : '—' ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <style>
+    .cp-table { width:100%; border-collapse:collapse; font-size:13px; }
+    .cp-table th, .cp-table td { padding:6px 10px; text-align:left; border-bottom:1px solid var(--color-border); }
+    .cp-table thead th { background:var(--color-bg); font-weight:600; font-size:11px; text-transform:uppercase; color:var(--color-text-muted); }
+    </style>
+</section>
+
+<section class="prod-tab" data-tab="description">
 <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/push" class="cat-detail">
     <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
 
@@ -343,6 +470,7 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
         </div>
     </div>
 </form>
+</section>
 
 <style>
 /* Mêmes styles que la page catégorie (champs alignés + éditeur HTML) */
@@ -377,6 +505,7 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
 .html-editor > textarea:focus { outline: 2px solid var(--color-primary, #2563eb); outline-offset: -2px; }
 </style>
 
+<section class="prod-tab" data-tab="avis" hidden>
 <!-- Bloc Avis produits (au-dessus de la galerie) -->
 <?php
     $reviewsCount = $row['reviews_count'] !== null ? (int) $row['reviews_count'] : 0;
@@ -447,6 +576,9 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
     </div>
 </div>
 
+</section>
+
+<section class="prod-tab" data-tab="galerie" hidden>
 <?php if (!empty($gallery_images)): ?>
     <div class="card" style="margin-top:24px;">
         <div class="card__header" style="display:flex;justify-content:space-between;align-items:center;">
@@ -588,6 +720,73 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
         </div>
     </div>
 <?php endif; ?>
+</section>
+
+<style>
+.prod-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:2px solid var(--color-border); margin-bottom:20px; }
+.prod-tabs__item { background:transparent; border:0; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 16px; font-size:14px; font-weight:600; color:var(--color-text-muted); cursor:pointer; font-family:inherit; }
+.prod-tabs__item:hover { color:var(--color-text); }
+.prod-tabs__item--active { color:var(--color-primary, #2563eb); border-bottom-color:var(--color-primary, #2563eb); }
+</style>
+
+<script>
+// Onglets fiche produit
+(function () {
+    const tabs = document.querySelectorAll('.prod-tabs__item');
+    const panels = document.querySelectorAll('.prod-tab');
+    tabs.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const target = btn.dataset.tabTarget;
+            tabs.forEach(t => t.classList.toggle('prod-tabs__item--active', t === btn));
+            panels.forEach(p => { p.hidden = p.dataset.tab !== target; });
+        });
+    });
+
+    // Etude de prix SerpApi
+    const cpBtn = document.getElementById('cp-btn');
+    if (cpBtn) {
+        const lbl = cpBtn.querySelector('.btn-label');
+        const spin = cpBtn.querySelector('.btn-spinner');
+        const statusEl = document.getElementById('cp-status');
+        const resultEl = document.getElementById('cp-result');
+        const csrf = document.querySelector('input[name="_csrf"]')?.value || '';
+        const productId = cpBtn.dataset.productId;
+        const fmt = (v) => v === null || v === undefined ? '—' : new Intl.NumberFormat('fr-FR', {minimumFractionDigits:2, maximumFractionDigits:2}).format(v) + ' €';
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+        cpBtn.addEventListener('click', async function () {
+            cpBtn.disabled = true; if (lbl) lbl.hidden = true; if (spin) spin.hidden = false;
+            statusEl.textContent = ''; statusEl.style.color = 'var(--color-text-muted)';
+            try {
+                const fd = new FormData(); fd.append('_csrf', csrf);
+                const res = await fetch('/produits/' + encodeURIComponent(productId) + '/compare-prices', { method:'POST', body:fd, headers:{'Accept':'application/json'} });
+                const j = await res.json();
+                if (!j.ok) { statusEl.style.color = '#dc2626'; statusEl.textContent = '❌ ' + (j.message || 'Erreur'); return; }
+                const s = j.stats || {};
+                let html = '<div style="padding:10px 12px; background:var(--color-bg); border-radius:var(--radius); font-size:13px; margin-bottom:10px;">' + esc(j.summary) + '</div>';
+                html += '<div style="display:flex; gap:18px; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">'
+                     + '<span>Moy. <strong>' + fmt(s.avg_price_eur) + '</strong></span>'
+                     + '<span>Min <strong>' + fmt(s.min_price_eur) + '</strong></span>'
+                     + '<span>Max <strong>' + fmt(s.max_price_eur) + '</strong></span>'
+                     + '<span>Médiane <strong>' + fmt(s.median_price_eur) + '</strong></span></div>';
+                html += '<table class="cp-table"><thead><tr><th>Marchand</th><th>Produit</th><th class="catalog-table__num">Prix</th></tr></thead><tbody>';
+                (j.results || []).forEach(function (r) {
+                    const nm = r.url ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' : esc(r.name);
+                    html += '<tr><td>' + esc(r.site) + '</td><td>' + nm + '</td><td class="catalog-table__num">' + (r.price_eur != null ? fmt(r.price_eur) : '—') + '</td></tr>';
+                });
+                html += '</tbody></table>';
+                resultEl.innerHTML = html;
+                resultEl.hidden = false;
+                statusEl.style.color = '#16a34a'; statusEl.textContent = '✓ ' + (s.found_count || 0) + ' résultat(s).';
+            } catch (err) {
+                statusEl.style.color = '#dc2626'; statusEl.textContent = 'Erreur réseau : ' + err.message;
+            } finally {
+                cpBtn.disabled = false; if (lbl) lbl.hidden = false; if (spin) spin.hidden = true;
+            }
+        });
+    }
+})();
+</script>
 
 <script>
 (function () {
@@ -997,3 +1196,5 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
     }
 })();
 </script>
+</div>
+

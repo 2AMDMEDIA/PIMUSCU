@@ -620,6 +620,7 @@ final class CatalogueController extends BaseController
                                 (string) ($sibRow['barcode'] ?? ''),
                                 $skuToCreate,
                                 $attrsLabel !== '' ? $attrsLabel : null,
+                                $sibAttrIds,
                             );
                             $catalogRepo->setPrestaLink($client->id, $skuToCreate, $newId, $combId);
                             $createdCount++;
@@ -693,6 +694,7 @@ final class CatalogueController extends BaseController
                     (string) ($row['barcode'] ?? ''),
                     $sku,
                     $attrsLabel !== '' ? $attrsLabel : null,
+                    $optionValueIds,
                 );
 
                 // Push image cover de la decli si presente

@@ -16,9 +16,9 @@ final class PrestaProductRepository
     }
 
     /**
-     * Récupère nom + reference + uuid pour une liste de presta_id.
+     * Récupère nom + reference + uuid + marque + statut actif pour une liste de presta_id.
      * @param list<int> $prestaIds
-     * @return array<int, array{id:string, name:string, reference:string}> Map presta_id => infos
+     * @return array<int, array{id:string, name:string, reference:string, manufacturer_name:string, active:int}> Map presta_id => infos
      */
     public function findByPrestaIds(string $clientId, array $prestaIds): array
     {
@@ -26,7 +26,7 @@ final class PrestaProductRepository
         if ($prestaIds === []) return [];
         $placeholders = implode(',', array_fill(0, count($prestaIds), '?'));
         $stmt = $this->pdo()->prepare(
-            'SELECT id, presta_id, name, reference FROM presta_products
+            'SELECT id, presta_id, name, reference, manufacturer_name, active FROM presta_products
               WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
         );
         $stmt->execute(array_merge([$clientId], $prestaIds));
@@ -36,6 +36,8 @@ final class PrestaProductRepository
                 'id' => (string) $r['id'],
                 'name' => (string) ($r['name'] ?? ''),
                 'reference' => (string) ($r['reference'] ?? ''),
+                'manufacturer_name' => (string) ($r['manufacturer_name'] ?? ''),
+                'active' => (int) ($r['active'] ?? 1),
             ];
         }
         return $map;
@@ -322,17 +324,18 @@ final class PrestaProductRepository
     public function upsertBatch(string $clientId, array $products): int
     {
         $sql = 'INSERT INTO presta_products
-                  (id, client_id, presta_id, reference, supplier_reference, name, price, wholesale_price, active, presta_category_id,
+                  (id, client_id, presta_id, reference, supplier_reference, name, manufacturer_name, price, wholesale_price, active, presta_category_id,
                    description_short, description, meta_title, meta_description, meta_keywords,
                    has_cms_content, has_description, image_url, link_rewrite, synced_at)
                 VALUES
-                  (:id, :client_id, :presta_id, :reference, :supplier_ref, :name, :price, :wholesale, :active, :cat_id,
+                  (:id, :client_id, :presta_id, :reference, :supplier_ref, :name, :manufacturer, :price, :wholesale, :active, :cat_id,
                    :desc_short, :description, :meta_title, :meta_desc, :meta_kw,
                    :has_cms, :has_desc, :image_url, :link_rewrite, NOW())
                 ON DUPLICATE KEY UPDATE
                   reference = VALUES(reference),
                   supplier_reference = VALUES(supplier_reference),
                   name = VALUES(name),
+                  manufacturer_name = VALUES(manufacturer_name),
                   price = VALUES(price),
                   wholesale_price = VALUES(wholesale_price),
                   active = VALUES(active),
@@ -363,6 +366,7 @@ final class PrestaProductRepository
                     ':reference' => $p['reference'] ?? '',
                     ':supplier_ref' => $p['supplier_reference'] ?? null,
                     ':name' => $p['name'] ?? '',
+                    ':manufacturer' => (!empty($p['manufacturer_name'])) ? $p['manufacturer_name'] : null,
                     ':price' => $p['price'] ?? 0,
                     ':wholesale' => $p['wholesale_price'] ?? 0,
                     ':active' => $p['active'] ?? 1,
@@ -383,6 +387,62 @@ final class PrestaProductRepository
         } catch (\Throwable $e) {
             $pdo->rollBack();
             throw $e;
+        }
+        return $count;
+    }
+
+    /**
+     * Vide les colonnes promo_* de tous les produits du client.
+     * À appeler avant applyActivePromos pour repartir d'une base propre.
+     */
+    public function clearAllPromos(string $clientId): void
+    {
+        $stmt = $this->pdo()->prepare(
+            'UPDATE presta_products
+                SET promo_reduction_type = NULL, promo_reduction = NULL,
+                    promo_from = NULL, promo_to = NULL
+              WHERE client_id = :client_id'
+        );
+        $stmt->execute([':client_id' => $clientId]);
+    }
+
+    /**
+     * Applique les promos actives (specific_prices) recues du Webservice.
+     * Ne garde que celles dont la fenetre temporelle est ouverte.
+     *
+     * @param list<array{id_product:int, reduction:float, reduction_type:string, from:string, to:string}> $specificPrices
+     * @return int Nombre de promos appliquees
+     */
+    public function applyActivePromos(string $clientId, array $specificPrices): int
+    {
+        $now = date('Y-m-d H:i:s');
+        $sql = 'UPDATE presta_products
+                   SET promo_reduction_type = :type, promo_reduction = :reduction,
+                       promo_from = :from, promo_to = :to
+                 WHERE client_id = :client_id AND presta_id = :presta_id';
+        $stmt = $this->pdo()->prepare($sql);
+        $count = 0;
+        foreach ($specificPrices as $sp) {
+            $type = (string) ($sp['reduction_type'] ?? '');
+            if (!in_array($type, ['percentage', 'amount'], true)) continue;
+            $reduction = (float) ($sp['reduction'] ?? 0);
+            if ($reduction <= 0) continue;
+            $prestaId = (int) ($sp['id_product'] ?? 0);
+            if ($prestaId <= 0) continue;
+            $from = (string) ($sp['from'] ?? '');
+            $to = (string) ($sp['to'] ?? '');
+            $fromOk = ($from === '' || $from === '0000-00-00 00:00:00' || $from <= $now);
+            $toOk   = ($to === '' || $to === '0000-00-00 00:00:00' || $to >= $now);
+            if (!$fromOk || !$toOk) continue;
+            $stmt->execute([
+                ':type' => $type,
+                ':reduction' => $reduction,
+                ':from' => ($from !== '' && $from !== '0000-00-00 00:00:00') ? $from : null,
+                ':to' => ($to !== '' && $to !== '0000-00-00 00:00:00') ? $to : null,
+                ':client_id' => $clientId,
+                ':presta_id' => $prestaId,
+            ]);
+            $count++;
         }
         return $count;
     }

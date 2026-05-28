@@ -12,9 +12,11 @@ use App\Repositories\ClientFieldInstructionsRepository;
 use App\Repositories\GeneratedImageRepository;
 use App\Repositories\PrestaProductCombinationRepository;
 use App\Repositories\PrestaProductRepository;
+use App\Repositories\ProductPriceAnalysisRepository;
 use App\Services\AiService;
 use App\Services\ClientResolver;
 use App\Services\KieClient;
+use App\Services\PriceComparator;
 use App\Services\PrestaShopClient;
 use App\Services\ProductPromptBuilder;
 
@@ -42,8 +44,9 @@ final class ProductDetailController extends BaseController
         $linkRewrite = (string) ($row['link_rewrite'] ?? '');
         $externalUrl = $linkRewrite !== '' ? $shopUrl . '/' . $row['presta_id'] . '-' . $linkRewrite . '.html' : null;
 
-        // Galerie : best-effort, échoue silencieusement si l'API Presta plante.
+        // Galerie + promos actives : best-effort, échoue silencieusement si l'API Presta plante.
         $galleryImages = [];
+        $activePromos = [];
         if ($client->prestashopApiKeyEncrypted !== null) {
             try {
                 $service = new PrestaShopClient($client);
@@ -58,6 +61,11 @@ final class ProductDetailController extends BaseController
             } catch (\Throwable) {
                 // Best-effort
             }
+            try {
+                $activePromos = (new PrestaShopClient($client))->listSpecificPricesForProduct((int) $row['presta_id']);
+            } catch (\Throwable) {
+                // Best-effort
+            }
         }
 
         $combinations = (new PrestaProductCombinationRepository())
@@ -66,6 +74,9 @@ final class ProductDetailController extends BaseController
         $generations = (new GeneratedImageRepository())->listForProduct($client->id, (string) $row['id'], 20);
         $kieConfigured = (new KieClient($client))->isConfigured();
 
+        // Derniere etude de prix SerpApi (si deja faite)
+        $priceAnalysis = (new ProductPriceAnalysisRepository())->findLatest($client->id, (int) $row['presta_id']);
+
         $this->renderApp('pages.produits.detail', [
             'row' => $row,
             'external_url' => $externalUrl,
@@ -73,9 +84,91 @@ final class ProductDetailController extends BaseController
             'combinations' => $combinations,
             'generations' => $generations,
             'kie_configured' => $kieConfigured,
+            'price_analysis' => $priceAnalysis,
+            'active_promos' => $activePromos,
         ], [
             'active' => 'produits',
             'page_title' => (string) $row['name'],
+        ]);
+    }
+
+    /**
+     * Prix effectif TTC du produit (price HT * 1.20). Helper centralise pour
+     * l'etude de prix. (La promo flash, si re-activee, pourra raffiner ici.)
+     */
+    private function computeEffectivePriceTTC(array $row): float
+    {
+        return (float) ($row['price'] ?? 0) * 1.20;
+    }
+
+    /**
+     * POST AJAX : etude de prix concurrentielle via SerpApi (Google Shopping FR).
+     */
+    public function comparePrices(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->json(['ok' => false, 'message' => 'Aucun client actif.'], 400);
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->json(['ok' => false, 'message' => 'Produit introuvable.'], 404);
+        }
+
+        $priceTTC = $this->computeEffectivePriceTTC($row);
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        try {
+            $result = (new PriceComparator($client))->compare(
+                productName: (string) $row['name'],
+                reference: (string) ($row['reference'] ?? ''),
+                currentPriceTTC: $priceTTC,
+            );
+        } catch (\Throwable $e) {
+            $this->json(['ok' => false, 'message' => $e->getMessage()], 500);
+        }
+
+        $analysisId = null;
+        try {
+            $analysisId = (new ProductPriceAnalysisRepository())->create(
+                clientId: $client->id,
+                prestaProductId: (int) $row['presta_id'],
+                searchQuery: $result['search_query'],
+                currentPriceTTC: $priceTTC,
+                avg: $result['avg_price_eur'],
+                min: $result['min_price_eur'],
+                max: $result['max_price_eur'],
+                median: $result['median_price_eur'],
+                foundCount: count($result['results']),
+                summary: $result['summary'],
+                results: $result['results'],
+            );
+        } catch (\Throwable $e) {
+            error_log('Save price analysis failed: ' . $e->getMessage());
+        }
+
+        $this->json([
+            'ok' => true,
+            'analysis_id' => $analysisId,
+            'results' => $result['results'],
+            'summary' => $result['summary'],
+            'stats' => [
+                'avg_price_eur' => $result['avg_price_eur'],
+                'min_price_eur' => $result['min_price_eur'],
+                'max_price_eur' => $result['max_price_eur'],
+                'median_price_eur' => $result['median_price_eur'],
+                'current_price_ttc' => $priceTTC,
+                'found_count' => count($result['results']),
+            ],
+            'search_query' => $result['search_query'],
+            'created_at' => date('Y-m-d H:i:s'),
         ]);
     }
 
@@ -347,6 +440,134 @@ final class ProductDetailController extends BaseController
         (new GeneratedImageRepository())->delete($client->id, $generationId);
         $this->flashSuccess('Generation supprimee de l\'historique.');
         $this->redirect('/produits/' . urlencode($id));
+    }
+
+    // -------------------------------------------------------------------------
+    // Promo flash (specific_price PrestaShop)
+    // -------------------------------------------------------------------------
+
+    public function createFlashPromo(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            http_response_code(404);
+            echo 'Produit introuvable';
+            return;
+        }
+
+        $newPriceTTC = $this->input('new_price_ttc');
+        $discountPct = $this->input('discount_pct');
+        $dateFrom = $this->input('date_from');
+        $dateTo = $this->input('date_to');
+
+        if ($dateFrom === null || $dateTo === null) {
+            $this->flashError('Les dates Du et Au sont obligatoires.');
+            $this->redirect('/produits/' . $id);
+        }
+        $tsFrom = strtotime($dateFrom);
+        $tsTo = strtotime($dateTo);
+        if ($tsFrom === false || $tsTo === false) {
+            $this->flashError('Format de date invalide.');
+            $this->redirect('/produits/' . $id);
+        }
+        if ($tsTo < $tsFrom) {
+            $this->flashError('La date "Au" doit être postérieure ou égale à la date "Du".');
+            $this->redirect('/produits/' . $id);
+        }
+
+        $priceTTC = (float) $row['price'] * 1.20;
+        $reductionType = null;
+        $reductionValue = null;
+
+        if ($newPriceTTC !== null && $newPriceTTC !== '') {
+            $newPriceFloat = (float) str_replace(',', '.', $newPriceTTC);
+            if ($newPriceFloat <= 0 || $newPriceFloat >= $priceTTC) {
+                $this->flashError('Le nouveau prix doit être positif et inférieur au prix actuel (' . number_format($priceTTC, 2, ',', ' ') . ' € TTC).');
+                $this->redirect('/produits/' . $id);
+            }
+            $reductionValue = $priceTTC - $newPriceFloat;
+            $reductionType = 'amount';
+        } elseif ($discountPct !== null && $discountPct !== '') {
+            $pctFloat = (float) str_replace(',', '.', $discountPct);
+            if ($pctFloat <= 0 || $pctFloat >= 100) {
+                $this->flashError('La remise doit être comprise entre 1 et 99 %.');
+                $this->redirect('/produits/' . $id);
+            }
+            $reductionValue = round($pctFloat / 100, 6);
+            $reductionType = 'percentage';
+        } else {
+            $this->flashError('Saisissez un nouveau prix TTC OU une remise %.');
+            $this->redirect('/produits/' . $id);
+        }
+
+        $service = new PrestaShopClient($client);
+        if (!$service->isConfigured()) {
+            $this->flashError('Clé API PrestaShop non configurée.');
+            $this->redirect('/settings?tab=prestashop');
+        }
+
+        try {
+            $existing = $service->listSpecificPricesForProduct((int) $row['presta_id']);
+            foreach ($existing as $promo) {
+                $service->deleteSpecificPrice($promo['id']);
+            }
+            $service->createSpecificPrice([
+                'id_product' => (int) $row['presta_id'],
+                'reduction' => (float) $reductionValue,
+                'reduction_type' => $reductionType,
+                'from' => date('Y-m-d 00:00:00', $tsFrom),
+                'to' => date('Y-m-d 23:59:59', $tsTo),
+            ]);
+        } catch (\Throwable $e) {
+            $this->flashError('Échec création promo : ' . $e->getMessage());
+            $this->redirect('/produits/' . $id);
+        }
+
+        $label = $reductionType === 'amount'
+            ? '-' . number_format((float) $reductionValue, 2, ',', ' ') . ' € TTC'
+            : '-' . number_format((float) $reductionValue * 100, 1, ',', ' ') . ' %';
+        $this->flashSuccess('Promo flash créée ' . $label . ' du ' . date('d/m/Y', $tsFrom) . ' au ' . date('d/m/Y', $tsTo) . '.');
+        $this->redirect('/produits/' . $id);
+    }
+
+    /** Supprime toutes les promos actives sur ce produit. */
+    public function deleteFlashPromo(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            http_response_code(404);
+            echo 'Produit introuvable';
+            return;
+        }
+
+        try {
+            $service = new PrestaShopClient($client);
+            $existing = $service->listSpecificPricesForProduct((int) $row['presta_id']);
+            foreach ($existing as $promo) {
+                $service->deleteSpecificPrice($promo['id']);
+            }
+            $this->flashSuccess(count($existing) . ' promo(s) supprimée(s).');
+        } catch (\Throwable $e) {
+            $this->flashError('Échec suppression : ' . $e->getMessage());
+        }
+
+        $this->redirect('/produits/' . $id);
     }
 
     public function saveOptimized(string $id): void
