@@ -80,6 +80,12 @@ final class ProductsController extends BaseController
         }
 
         try {
+            // Sync long (gros catalogue) : on retire la limite de temps PHP et on
+            // continue même si le navigateur/proxy se déconnecte (sinon les derniers
+            // lots de combinaisons — donc les déclinaisons récentes — sont manqués).
+            @set_time_limit(0);
+            ignore_user_abort(true);
+
             // Libère le verrou de session pour autoriser les autres requêtes pendant le sync long.
             if (session_status() === PHP_SESSION_ACTIVE) {
                 session_write_close();
@@ -124,7 +130,11 @@ final class ProductsController extends BaseController
                     $combSupplierRefs = $service->fetchCombinationSuppliersBySupplier($client->supplierId);
                 }
                 $combRepo = new PrestaProductCombinationRepository();
-                $combRepo->clearForClient($client->id);
+                // NON-destructif : on ne purge PLUS avant. On upsert pendant le stream
+                // (synced_at = NOW()), puis on supprime APRES complétion les lignes non
+                // touchées (déclis disparues côté PS). Si le sync coupe (timeout), la
+                // purge n'est jamais atteinte → on ne perd aucune déclinaison existante.
+                $combSyncStart = $combRepo->dbNow();
 
                 $combinationCount = $service->streamAllCombinations(function (array $batch) use ($combRepo, $client, $attributeIndex, $combSupplierRefs): void {
                     foreach ($batch as &$c) {
@@ -146,6 +156,8 @@ final class ProductsController extends BaseController
                     unset($c);
                     $combRepo->upsertBatch($client->id, $batch);
                 });
+                // Sync complet atteint : purge des déclis obsolètes (non revues ce run).
+                $combRepo->deleteSyncedBefore($client->id, $combSyncStart);
             } catch (\Throwable $e) {
                 error_log('Sync combinations failed: ' . $e->getMessage());
             }

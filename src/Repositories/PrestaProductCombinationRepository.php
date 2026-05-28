@@ -303,6 +303,30 @@ final class PrestaProductCombinationRepository
         $stmt->execute([':client_id' => $clientId]);
     }
 
+    /** Heure courante de la base (pour borner une purge par synced_at). */
+    public function dbNow(): string
+    {
+        return (string) $this->pdo()->query('SELECT NOW()')->fetchColumn();
+    }
+
+    /**
+     * Purge NON-destructive APRES un sync complet : supprime les combinaisons
+     * non touchées depuis $since (synced_at < since ou NULL) = déclis disparues
+     * côté PrestaShop. Si le sync est interrompu (timeout), cette purge n'est
+     * jamais atteinte → aucune perte de données (contrairement à un clear upfront).
+     *
+     * @return int Nombre de lignes supprimées
+     */
+    public function deleteSyncedBefore(string $clientId, string $since): int
+    {
+        $stmt = $this->pdo()->prepare(
+            'DELETE FROM presta_product_combinations
+              WHERE client_id = :cid AND (synced_at IS NULL OR synced_at < :since)'
+        );
+        $stmt->execute([':cid' => $clientId, ':since' => $since]);
+        return $stmt->rowCount();
+    }
+
     /**
      * Insert minimal d'une combination fraichement creee (via /catalogue/create) pour
      * que le cache local soit a jour immediatement, sans attendre /produits/sync.
