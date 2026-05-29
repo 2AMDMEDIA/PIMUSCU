@@ -105,6 +105,41 @@ use App\Helpers\Renderer;
                 </label>
             </div>
 
+            <?php
+            /** @var list<array{id:int, name:string, depth:int, indented_name:string}> $categories_flat */
+            $categories_flat = $categories_flat ?? [];
+            $ignored_category_ids = $ignored_category_ids ?? [];
+            $categories_error = $categories_error ?? null;
+            ?>
+            <div class="field" style="margin-top:8px;">
+                <span class="field__label">Catégories à ignorer</span>
+                <span class="field__hint" style="margin-bottom:8px;">
+                    Les produits appartenant aux catégories cochées seront <strong>ignorés à la synchronisation</strong>
+                    (non importés dans le PIM ; ceux déjà importés sont retirés au prochain sync produits).
+                    <?php if ($categories_error !== null): ?>
+                        <br><span style="color:#dc2626;">⚠ Impossible de charger les catégories : <?= Renderer::escape($categories_error) ?></span>
+                    <?php elseif (empty($categories_flat)): ?>
+                        <br><span style="color:var(--color-text-muted);">Configure d'abord la clé API PrestaShop puis recharge la page.</span>
+                    <?php endif; ?>
+                </span>
+                <input type="hidden" name="ignored_category_ids_present" value="1">
+                <?php if (!empty($categories_flat)): ?>
+                    <input type="search" id="ps-cat-filter" placeholder="Filtrer les catégories…"
+                           style="width:100%; box-sizing:border-box; padding:6px 10px; border:1px solid var(--color-border); border-radius:var(--radius); font-size:13px; margin-bottom:8px;">
+                    <div style="max-height:280px; overflow-y:auto; border:1px solid var(--color-border); border-radius:var(--radius); padding:8px 12px; background:var(--color-surface);">
+                        <?php foreach ($categories_flat as $cat): ?>
+                            <label class="ps-cat-row" data-name="<?= Renderer::escape(mb_strtolower($cat['name'])) ?>"
+                                   style="display:flex; align-items:center; gap:8px; padding:3px 0; font-size:13px; cursor:pointer;">
+                                <input type="checkbox" name="ignored_category_ids[]" value="<?= (int) $cat['id'] ?>"
+                                       <?= in_array((int) $cat['id'], $ignored_category_ids, true) ? 'checked' : '' ?>>
+                                <span style="white-space:pre;"><?= Renderer::escape($cat['indented_name']) ?></span>
+                                <span style="color:var(--color-text-muted); font-size:11px;">#<?= (int) $cat['id'] ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
             <div id="ps-test-result" class="ps-test-result" hidden></div>
 
             <div class="form-actions">
@@ -119,6 +154,19 @@ use App\Helpers\Renderer;
 </div>
 
 <script>
+// Filtre client-side de la liste des catégories à ignorer.
+(function () {
+    const filter = document.getElementById('ps-cat-filter');
+    if (!filter) return;
+    const rows = document.querySelectorAll('.ps-cat-row');
+    filter.addEventListener('input', function () {
+        const q = filter.value.trim().toLowerCase();
+        rows.forEach(function (row) {
+            const name = row.getAttribute('data-name') || '';
+            row.style.display = (q === '' || name.indexOf(q) !== -1) ? '' : 'none';
+        });
+    });
+})();
 (function () {
     const btn = document.getElementById('ps-test-btn');
     const result = document.getElementById('ps-test-result');

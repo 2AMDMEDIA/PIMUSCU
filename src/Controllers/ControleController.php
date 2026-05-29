@@ -155,7 +155,7 @@ final class ControleController extends BaseController
         }
 
         // Onglet actif + filtres + pagination (server-side).
-        $tab = in_array($this->input('tab'), ['2', '3'], true) ? (int) $this->input('tab') : 1;
+        $tab = in_array($this->input('tab'), ['2', '3', '4'], true) ? (int) $this->input('tab') : 1;
         $page = max(1, (int) ($this->input('page') ?? 1));
         $search = trim((string) ($this->input('q') ?? ''));
         $brand = trim((string) ($this->input('brand') ?? ''));
@@ -243,12 +243,55 @@ final class ControleController extends BaseController
             $singleComboProducts = $combRepo->listProductsWithSingleCombination($client->id, $search, $brand, $perPage, $offset, $active);
         }
 
+        // ----- Onglet 4 : doublons de valeurs d'attribut (live Webservice). Calculé si actif. -----
+        $dupAttributes = [];
+        $total4 = 0;
+        $attrError = null;
+        if ($tab === 4) {
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
+            try {
+                $groups = (new PrestaShopClient($client))->fetchAttributeGroupsWithValues();
+                $all = [];
+                foreach ($groups as $g) {
+                    $byLabel = [];
+                    foreach ($g['values'] as $v) {
+                        $key = mb_strtolower(trim((string) $v['label']));
+                        if ($key === '') continue;
+                        $byLabel[$key][] = $v;
+                    }
+                    foreach ($byLabel as $vals) {
+                        if (count($vals) < 2) continue;
+                        $all[] = [
+                            'group_id' => (int) $g['id'],
+                            'group_name' => (string) $g['name'],
+                            'label' => (string) $vals[0]['label'],
+                            'ids' => array_map(fn($x) => (int) $x['id'], $vals),
+                            'count' => count($vals),
+                        ];
+                    }
+                }
+                if ($search !== '') {
+                    $needle = mb_strtolower($search);
+                    $all = array_values(array_filter($all, fn($r) => str_contains(mb_strtolower($r['label']), $needle)
+                        || str_contains(mb_strtolower($r['group_name']), $needle)));
+                }
+                usort($all, fn($a, $b) => [$a['group_name'], $a['label']] <=> [$b['group_name'], $b['label']]);
+                $total4 = count($all);
+                $dupAttributes = array_slice($all, $offset, $perPage);
+            } catch (\Throwable $e) {
+                $attrError = $e->getMessage();
+            }
+        }
+
         // File des requêtes SQL empilées (jouées manuellement).
         $sqlQueue = array_values((array) Session::get(self::SQL_QUEUE_KEY, []));
 
         $activeTotal = match ($tab) {
             2 => $total2,
             3 => $total3,
+            4 => $total4,
             default => $total1,
         };
         $totalPages = max(1, (int) ceil($activeTotal / $perPage));
@@ -266,7 +309,10 @@ final class ControleController extends BaseController
             'total1' => $total1,
             'total2' => $total2,
             'total3' => $total3,
+            'total4' => $total4,
             'distinct_products2' => $distinctProducts2,
+            'dup_attributes' => $dupAttributes,
+            'attr_error' => $attrError,
             'total_pages' => $totalPages,
             'search' => $search,
             'brand' => $brand,

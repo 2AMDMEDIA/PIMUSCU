@@ -16,6 +16,7 @@ final class Client
         public ?int $supplierId,
         public ?string $referencePrefix,
         public ?array $enabledAttributeGroupIds,
+        public ?array $ignoredCategoryIds,
         public ?string $logoUrl,
         public ?string $footerName,
         public int $tokenMonthlyLimit,
@@ -43,6 +44,9 @@ final class Client
                 ? (string) $row['reference_prefix'] : null,
             enabledAttributeGroupIds: isset($row['enabled_attribute_group_ids']) && $row['enabled_attribute_group_ids'] !== null
                 ? (is_array($d = json_decode((string) $row['enabled_attribute_group_ids'], true)) ? array_map('intval', $d) : null)
+                : null,
+            ignoredCategoryIds: isset($row['ignored_category_ids']) && $row['ignored_category_ids'] !== null
+                ? (is_array($ic = json_decode((string) $row['ignored_category_ids'], true)) ? array_map('intval', $ic) : null)
                 : null,
             logoUrl: $row['logo_url'] ?? null,
             footerName: $row['footer_name'] ?? null,

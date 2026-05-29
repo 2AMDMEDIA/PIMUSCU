@@ -7,6 +7,8 @@ use App\Helpers\Renderer;
  * @var list<array{id:?string, presta_id:int, name:string, reference:string, supplier_reference:string, brand:string, nb_combinations:int}> $supplier_ref_misplaced
  * @var list<array{presta_product_id:int, presta_combination_id:int, reference:?string, supplier_reference:?string, attributes_label:?string, option_value_ids:?string, product_uuid:?string, product_name:?string, product_reference:?string, brand:?string}> $multi_attr_combinations
  * @var list<array{presta_product_id:int, presta_combination_id:int, reference:?string, supplier_reference:?string, attributes_label:?string, option_value_ids:?string, product_uuid:?string, product_name:?string, product_reference:?string, brand:?string}> $single_combo_products
+ * @var list<array{group_id:int, group_name:string, label:string, ids:list<int>, count:int}> $dup_attributes
+ * @var ?string $attr_error
  * @var list<string> $sql_queue
  * @var int $tab
  * @var int $page
@@ -14,6 +16,7 @@ use App\Helpers\Renderer;
  * @var int $total1
  * @var int $total2
  * @var int $total3
+ * @var int $total4
  * @var int $distinct_products2
  * @var int $total_pages
  * @var string $search
@@ -26,7 +29,7 @@ use App\Helpers\Renderer;
 $sqlCount = count($sql_queue);
 $csrf = \App\Helpers\Csrf::token();
 $activeBrands = match ($tab) { 2 => $brands2, 3 => $brands3, default => $brands1 };
-$activeTotal = match ($tab) { 2 => $total2, 3 => $total3, default => $total1 };
+$activeTotal = match ($tab) { 2 => $total2, 3 => $total3, 4 => $total4, default => $total1 };
 
 // Construit une URL /controle en surchargeant des params (tab/page/q/brand/active).
 $url = function (array $ov = []) use ($tab, $page, $search, $brand, $active): string {
@@ -80,6 +83,11 @@ $ctx = function () use ($tab, $page, $search, $brand, $active): string {
                 ⚠️ Produits à 1 seule déclinaison
                 <span class="badge <?= $total3 > 0 ? 'badge--amber' : 'badge--green' ?>"><?= $total3 ?></span>
             </a>
+            <a href="<?= Renderer::escape($url(['tab' => 4, 'page' => 1, 'q' => '', 'brand' => '', 'active' => ''])) ?>"
+               class="controle-tab <?= $tab === 4 ? 'is-active' : '' ?>">
+                🔁 Doublons d'attributs
+                <?php if ($tab === 4): ?><span class="badge <?= $total4 > 0 ? 'badge--amber' : 'badge--green' ?>"><?= $total4 ?></span><?php endif; ?>
+            </a>
         </div>
 
         <?php /* ----- Barre de filtre (commune, scope = onglet actif) ----- */ ?>
@@ -88,6 +96,7 @@ $ctx = function () use ($tab, $page, $search, $brand, $active): string {
             <input type="search" name="q" value="<?= Renderer::escape($search) ?>"
                    placeholder="Rechercher (nom produit, réf, réf fournisseur)…"
                    style="flex:1; min-width:240px; max-width:420px; padding:6px 10px; border:1px solid var(--color-border); border-radius:var(--radius); font-size:13px;">
+            <?php if ($tab !== 4): ?>
             <select name="brand" onchange="this.form.submit()"
                     style="padding:6px 10px; border:1px solid var(--color-border); border-radius:var(--radius); font-size:13px; background:var(--color-surface); min-width:180px; max-width:260px;">
                 <option value="">— Toutes marques (<?= count($activeBrands) ?>) —</option>
@@ -101,6 +110,7 @@ $ctx = function () use ($tab, $page, $search, $brand, $active): string {
                 <option value="1" <?= $active === '1' ? 'selected' : '' ?>>✓ Actifs</option>
                 <option value="0" <?= $active === '0' ? 'selected' : '' ?>>✕ Inactifs</option>
             </select>
+            <?php endif; ?>
             <button type="submit" class="btn btn--secondary btn--sm">Rechercher</button>
             <?php if ($search !== '' || $brand !== '' || $active !== ''): ?>
                 <a href="<?= Renderer::escape($url(['page' => 1, 'q' => '', 'brand' => '', 'active' => ''])) ?>" class="btn btn--ghost btn--sm">✕ Effacer</a>
@@ -325,6 +335,59 @@ $ctx = function () use ($tab, $page, $search, $brand, $active): string {
                                             <td><?= $attrs !== '' ? Renderer::escape($attrs) : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
                                             <td><?= !empty($c['reference']) ? '<code style="font-size:11px;">' . Renderer::escape((string) $c['reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
                                             <td><?= !empty($c['supplier_reference']) ? '<code style="font-size:11px;">' . Renderer::escape((string) $c['supplier_reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
+
+        <?php /* ====================== ONGLET 4 ====================== */ ?>
+        <?php if ($tab === 4): ?>
+        <section class="controle-panel is-active">
+            <div class="card">
+                <div class="card__body">
+                    <p style="margin:0 0 14px; font-size:13px; color:var(--color-text-muted);">
+                        Valeurs d'attribut <strong>en double dans un même groupe</strong> (même libellé, ids différents).
+                        Source : PrestaShop en direct (groupes d'attributs + valeurs).
+                    </p>
+
+                    <?php if ($attr_error !== null): ?>
+                        <div style="padding:10px 12px; background:#fef2f2; border:1px solid #fecaca; border-radius:var(--radius); font-size:13px; color:#991b1b;">
+                            ❌ Erreur lors de l'appel PrestaShop : <?= Renderer::escape($attr_error) ?>
+                        </div>
+                    <?php elseif ($total4 === 0): ?>
+                        <div style="padding:10px 12px; background:#f0fdf4; border:1px solid #86efac; border-radius:var(--radius); font-size:13px; color:#166534;">
+                            ✓ Aucun doublon d'attribut détecté (ou aucun résultat pour ce filtre).
+                        </div>
+                    <?php else: ?>
+                        <div style="overflow-x:auto;">
+                            <table class="controle-table">
+                                <thead>
+                                    <tr>
+                                        <th>Groupe d'attribut</th>
+                                        <th>Libellé en double</th>
+                                        <th class="controle-table__num">Occurrences</th>
+                                        <th>ids des valeurs</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($dup_attributes as $d): ?>
+                                        <tr>
+                                            <td><?= Renderer::escape($d['group_name']) ?> <span style="font-size:11px; color:var(--color-text-muted);">(#<?= (int) $d['group_id'] ?>)</span></td>
+                                            <td><strong><?= Renderer::escape($d['label']) ?></strong></td>
+                                            <td class="controle-table__num">
+                                                <span class="badge badge--amber"><?= (int) $d['count'] ?></span>
+                                            </td>
+                                            <td>
+                                                <?php foreach ($d['ids'] as $idv): ?>
+                                                    <code style="font-size:11px; background:#f1f5f9; padding:1px 5px; border-radius:4px; margin-right:3px;"><?= (int) $idv ?></code>
+                                                <?php endforeach; ?>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>

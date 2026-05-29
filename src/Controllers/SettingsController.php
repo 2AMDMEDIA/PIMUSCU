@@ -86,6 +86,20 @@ final class SettingsController extends BaseController
             $data['has_api_key'] = $client->prestashopApiKeyEncrypted !== null;
             $data['has_blog_api_key'] = $client->prestashopBlogApiKeyEncrypted !== null;
             $data['has_reviews_api_key'] = $client->prestashopReviewsApiKeyEncrypted !== null;
+            // Liste des catégories Presta (pour le sélecteur "catégories à ignorer").
+            // Best-effort : si l'API plante ou pas de clé, on n'affiche pas le sélecteur.
+            $categoriesFlat = [];
+            $categoriesError = null;
+            if ($client->prestashopApiKeyEncrypted !== null) {
+                try {
+                    $categoriesFlat = (new PrestaShopClient($client))->fetchCategoriesFlat();
+                } catch (\Throwable $e) {
+                    $categoriesError = $e->getMessage();
+                }
+            }
+            $data['categories_flat'] = $categoriesFlat;
+            $data['categories_error'] = $categoriesError;
+            $data['ignored_category_ids'] = $client->ignoredCategoryIds ?? [];
         }
 
         if ($tab === 'fields') {
@@ -155,6 +169,24 @@ final class SettingsController extends BaseController
         if ($referencePrefix !== null) {
             $sets[] = 'reference_prefix = :ref_prefix';
             $params[':ref_prefix'] = $referencePrefix === '' ? null : mb_substr($referencePrefix, 0, 20);
+        }
+
+        // ignored_category_ids : catégories dont les produits sont ignorés à la sync.
+        // Toujours mis à jour si le champ est présent dans le POST (coché ou non).
+        if (isset($_POST['ignored_category_ids']) || $this->input('ignored_category_ids_present') !== null) {
+            $rawCats = $_POST['ignored_category_ids'] ?? [];
+            $catIds = [];
+            if (is_array($rawCats)) {
+                foreach ($rawCats as $cid) {
+                    $i = (int) $cid;
+                    if ($i > 0 && !in_array($i, $catIds, true)) {
+                        $catIds[] = $i;
+                    }
+                }
+            }
+            sort($catIds);
+            $sets[] = 'ignored_category_ids = :ignored_cats';
+            $params[':ignored_cats'] = $catIds === [] ? null : json_encode($catIds, JSON_UNESCAPED_UNICODE);
         }
 
         if ($sets !== []) {

@@ -94,6 +94,19 @@ final class ProductsController extends BaseController
 
             $repo = new PrestaProductRepository();
 
+            // Catégories à ignorer (Paramètres → PrestaShop) : on récupère l'ensemble
+            // des id_product de ces catégories pour les exclure du sync. Comme ils ne
+            // sont pas ajoutés à $syncedIds, deleteStale les purgera s'ils étaient déjà
+            // en cache. Best-effort : si l'appel plante, on n'ignore rien.
+            $ignoredProductIds = [];
+            if (!empty($client->ignoredCategoryIds)) {
+                try {
+                    $ignoredProductIds = $service->fetchProductIdsInCategories($client->ignoredCategoryIds);
+                } catch (\Throwable $e) {
+                    error_log('Sync ignored categories failed: ' . $e->getMessage());
+                }
+            }
+
             // Pré-charge la map presta_product_id => product_supplier_reference
             // si un id_supplier est configuré pour ce client.
             $supplierRefs = [];
@@ -110,14 +123,24 @@ final class ProductsController extends BaseController
             // Track les IDs synchros pour purger les orphelins apres (produits
             // supprimes cote PS).
             $syncedIds = [];
-            $count = $service->streamAllProducts(function (array $batch) use ($repo, $client, $supplierRefs, &$syncedIds): void {
-                foreach ($batch as &$product) {
+            $count = $service->streamAllProducts(function (array $batch) use ($repo, $client, $supplierRefs, $ignoredProductIds, &$syncedIds): void {
+                $toUpsert = [];
+                foreach ($batch as $product) {
+                    // Produit dans une catégorie ignorée : on saute (et on ne le compte pas
+                    // dans syncedIds -> deleteStale le purgera s'il était déjà en cache).
+                    if (isset($ignoredProductIds[(int) $product['id']])) {
+                        continue;
+                    }
                     $product['supplier_reference'] = $supplierRefs[$product['id']] ?? null;
                     $syncedIds[] = (int) $product['id'];
+                    $toUpsert[] = $product;
                 }
-                unset($product);
-                $repo->upsertBatch($client->id, $batch);
+                if ($toUpsert !== []) {
+                    $repo->upsertBatch($client->id, $toUpsert);
+                }
             });
+            // Nombre réellement importé (hors produits ignorés).
+            $count = count($syncedIds);
             $purgedCount = $repo->deleteStale($client->id, $syncedIds);
 
             // Sync des combinaisons (déclinaisons taille/saveur/couleur).

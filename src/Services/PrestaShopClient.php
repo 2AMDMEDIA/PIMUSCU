@@ -816,6 +816,37 @@ XML;
     }
 
     /**
+     * Retourne l'ensemble des id_product appartenant aux catégories données
+     * (associations.products de chaque catégorie). Sert à IGNORER ces produits
+     * à la synchronisation. Best-effort : une catégorie illisible est ignorée.
+     *
+     * @param list<int> $categoryIds
+     * @return array<int,true> Set d'id_product (clé = id) pour lookup O(1)
+     */
+    public function fetchProductIdsInCategories(array $categoryIds): array
+    {
+        $set = [];
+        foreach ($categoryIds as $catId) {
+            $catId = (int) $catId;
+            if ($catId <= 0) continue;
+            try {
+                $xml = $this->fetchCategoryXml($catId);
+            } catch (\Throwable) {
+                continue;
+            }
+            $cat = $xml->category;
+            if (!isset($cat->associations->products->product)) continue;
+            foreach ($cat->associations->products->product as $p) {
+                $pid = (int) $p->id;
+                if ($pid > 0) {
+                    $set[$pid] = true;
+                }
+            }
+        }
+        return $set;
+    }
+
+    /**
      * @param array<string,string> $query
      */
     private function get(string $path, array $query = [], bool $asJson = true): string
