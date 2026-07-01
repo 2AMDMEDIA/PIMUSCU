@@ -151,6 +151,7 @@ final class CatalogueController extends BaseController
             'configured' => $status['configured'],
             'config_message' => $status['message'] ?? null,
             'rows' => $rows,
+            'product_info_url' => (string) ($nwSettings['product_info_url'] ?? ''),
             'error' => null,
             'filter' => $filter,
             'search' => $search,
@@ -269,6 +270,63 @@ final class CatalogueController extends BaseController
         }
         $this->flashSuccess($msg);
         $this->redirect('/catalogue');
+    }
+
+    /**
+     * Page détail SKU Nutriweb : lit toutes les infos du cache local + récupère
+     * en live le bloc `nutrifacts` via l'API Nutriweb ({catalog}/{sku}?fields=nutrifacts).
+     */
+    public function showSku(string $sku): void
+    {
+        Auth::require();
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+
+        $sku = trim($sku);
+        if ($sku === '') {
+            $this->flashError('SKU manquant.');
+            $this->redirect('/catalogue');
+        }
+
+        $row = (new NutriwebCatalogRepository())->findBySku($client->id, $sku);
+        if ($row === null) {
+            $this->flashError('SKU "' . $sku . '" introuvable en cache. Lance une synchro du catalogue.');
+            $this->redirect('/catalogue');
+        }
+
+        // Enrichit avec le match Presta pour afficher le lien / ids côté PIM.
+        $enriched = $this->enrichRowsWithMatch($client->id, [$row]);
+        $row = $enriched[0] ?? $row;
+
+        // Fetch live du bloc nutrifacts (best-effort : si erreur, on affiche le message).
+        $nutrifactsPayload = null;
+        $nutrifactsError = null;
+        $nutrifactsUrlMasked = '';
+        $nutriweb = new NutriwebClient($client->id);
+        if ($nutriweb->status()['configured']) {
+            try {
+                $nutrifactsPayload = $nutriweb->fetchSkuDetail($sku, 'nutrifacts');
+                $nutrifactsUrlMasked = $nutriweb->getMaskedLastCalledUrl();
+            } catch (\Throwable $e) {
+                $nutrifactsError = $e->getMessage();
+                $nutrifactsUrlMasked = $nutriweb->getMaskedLastCalledUrl();
+            }
+        } else {
+            $nutrifactsError = 'Configuration Nutriweb incomplète (Paramètres → Nutriweb).';
+        }
+
+        $this->renderApp('pages.catalogue.sku', [
+            'row' => $row,
+            'sku' => $sku,
+            'nutrifacts_payload' => $nutrifactsPayload,
+            'nutrifacts_error' => $nutrifactsError,
+            'nutrifacts_url_masked' => $nutrifactsUrlMasked,
+        ], [
+            'active' => 'catalogue',
+            'page_title' => 'SKU ' . $sku,
+        ]);
     }
 
     /**

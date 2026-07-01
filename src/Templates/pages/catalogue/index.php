@@ -268,7 +268,11 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
                                         <span style="color:var(--color-text-muted); font-size:18px;">📷</span>
                                     <?php endif; ?>
                                 </td>
-                                <td><code><?= Renderer::escape($r['sku']) ?></code></td>
+                                <td>
+                                    <a href="/catalogue/sku/<?= urlencode((string) $r['sku']) ?>" target="_blank" rel="noopener" title="Voir la fiche détaillée du SKU (nouvel onglet)">
+                                        <code><?= Renderer::escape($r['sku']) ?></code>
+                                    </a>
+                                </td>
                                 <td>
                                     <?php if ($r['match'] !== null): ?>
                                         <code class="catalog-table__ids">

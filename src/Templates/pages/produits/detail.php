@@ -30,6 +30,11 @@ $optMetaTitle = (string) ($row['optimized_meta_title'] ?? '');
 $optMetaDesc = (string) ($row['optimized_meta_description'] ?? '');
 $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
 ?>
+<style>
+/* Fiche produit toujours en pleine largeur : force au cas où le :has()
+   global de app.css est bloqué par un cache navigateur ou un ancien build. */
+.app-content { max-width: none !important; }
+</style>
 <div class="page-fullwidth">
 <div class="product-detail-header">
     <?php if (!empty($row['image_url'])): ?>

@@ -38,8 +38,8 @@ final class NutriwebClient
     public function getMaskedLastCalledUrl(): string
     {
         if ($this->lastCalledUrl === '') return '';
-        // Remplace akey=XXX par akey=XXX***
-        return preg_replace(
+        // Remplace akey=XXX par akey=XXX***  (callback -> preg_replace_callback, pas preg_replace).
+        return preg_replace_callback(
             '/(akey=)([^&]+)/',
             fn($m) => $m[1] . substr($m[2], 0, 6) . '***',
             $this->lastCalledUrl
@@ -247,6 +247,53 @@ final class NutriwebClient
         $version = trim((string) ($image['version'] ?? ''));
         if ($url === '' || $filename === '' || $version === '') return null;
         return rtrim($url, '/') . $path . $filename . self::IMAGE_SIZE_SUFFIX . '.' . $version . self::IMAGE_EXT;
+    }
+
+    /**
+     * Récupère la fiche détaillée d'UN SKU depuis Nutriweb (endpoint
+     *   {catalogue_url_base}/{SKU}?akey=...&fields=...).
+     * Base URL et akey déduits de la config catalogue_url + private_key.
+     *
+     * @return array<string,mixed> Payload JSON brut
+     */
+    public function fetchSkuDetail(string $sku, string $fields = 'nutrifacts'): array
+    {
+        $settings = (new ClientNutriwebSettingsRepository())->get($this->clientId);
+        $baseUrl = (string) $settings['catalogue_url'];
+        if ($baseUrl === '') {
+            throw new RuntimeException('URL du catalogue Nutriweb manquante (Paramètres → Nutriweb).');
+        }
+        // Récupère l'akey : dans l'URL d'abord (si l'user l'a collée), sinon champ chiffré.
+        parse_str((string) parse_url($baseUrl, PHP_URL_QUERY), $existingParams);
+        $akey = (string) ($existingParams['akey'] ?? '');
+        if ($akey === '') {
+            if ($settings['private_key_encrypted'] === null) {
+                throw new RuntimeException('Clé privée Nutriweb manquante.');
+            }
+            $akey = Encryption::decrypt($settings['private_key_encrypted']);
+        }
+        // Construit l'URL du SKU : conserve scheme+host+port, remplace la query,
+        // ajoute /{sku} au path (encode le SKU pour supporter les caractères spéciaux).
+        $parts = parse_url($baseUrl);
+        if ($parts === false || empty($parts['host'])) {
+            throw new RuntimeException('URL catalogue Nutriweb invalide.');
+        }
+        $scheme = $parts['scheme'] ?? 'https';
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $basePath = rtrim($parts['path'] ?? '', '/');
+        $skuPath = $basePath . '/' . rawurlencode($sku);
+        $qs = http_build_query(['akey' => $akey, 'fields' => $fields]);
+        $url = $scheme . '://' . $parts['host'] . $port . $skuPath . '?' . $qs;
+
+        $this->lastCalledUrl = $url;
+        error_log('NutriwebClient::fetchSkuDetail calling: ' . $url);
+
+        $body = $this->get($url);
+        $payload = json_decode($body, true);
+        if (!is_array($payload)) {
+            throw new RuntimeException('Réponse Nutriweb invalide (JSON attendu).');
+        }
+        return $payload;
     }
 
     private function get(string $url): string

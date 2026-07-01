@@ -100,6 +100,7 @@ return [
     ['GET',  '/catalogue/search-presta-products', [CatalogueController::class, 'searchPrestaProducts'], true],
     ['GET',  '/catalogue/create', [CatalogueController::class, 'showCreate'], true],
     ['POST', '/catalogue/create', [CatalogueController::class, 'create'], true],
+    ['GET',  '/catalogue/sku/{sku}', [CatalogueController::class, 'showSku'], true],
 
     ['GET',  '/controle', [ControleController::class, 'index'], true],
     ['POST', '/controle/fix-supplier-ref', [ControleController::class, 'fixSupplierRef'], true],
