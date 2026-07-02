@@ -65,6 +65,13 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
             <?php if ($hasCmsContent): ?>
                 <span class="badge badge--purple">◆ Contenu CMS</span>
             <?php endif; ?>
+            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/sync-mapping" style="margin:0 0 0 auto;"
+                  onsubmit="return confirm('Pousser les champs mappés (Paramètres → Mapping) vers les SKUs de ce produit ?\n\nSeuls les mappings custom.* sont écrits en v1 (module aw_customproductfield).');">
+                <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                <button type="submit" class="btn btn--secondary btn--sm" title="Pousse les champs mappés vers les SKUs matchés à ce produit (module aw_customproductfield)">
+                    🔀 Synchroniser mapping
+                </button>
+            </form>
         </div>
         <p class="page-header__subtitle">
             Réf. <?= Renderer::escape($reference) ?> ·
@@ -146,15 +153,29 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
                             <th>Référence</th>
                             <th>Code-barres</th>
                             <th>Réf. fournisseur</th>
+                            <th style="width:150px;"></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($combinations as $c): ?>
+                        <?php foreach ($combinations as $c):
+                            $comboId = (int) ($c['presta_combination_id'] ?? 0);
+                        ?>
                             <tr>
                                 <td><?= !empty($c['attributes_label']) ? Renderer::escape((string) $c['attributes_label']) : '<em style="color:var(--color-text-muted);">— sans attribut —</em>' ?></td>
                                 <td><?= !empty($c['reference']) ? '<code>' . Renderer::escape((string) $c['reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
                                 <td><?= !empty($c['barcode']) ? '<code>' . Renderer::escape((string) $c['barcode']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
                                 <td><?= !empty($c['supplier_reference']) ? '<code>' . Renderer::escape((string) $c['supplier_reference']) . '</code>' : '<span style="color:var(--color-text-muted);">—</span>' ?></td>
+                                <td style="text-align:right;">
+                                    <?php if ($comboId > 0): ?>
+                                        <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/sync-mapping/<?= $comboId ?>" style="margin:0;"
+                                              onsubmit="return confirm('Pousser les champs mappés pour la déclinaison D#<?= $comboId ?> ?');">
+                                            <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                                            <button type="submit" class="btn btn--secondary btn--sm" title="Sync mapping pour cette déclinaison uniquement">
+                                                🔀 Synchroniser
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>

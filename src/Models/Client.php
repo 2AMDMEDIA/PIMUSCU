@@ -13,10 +13,12 @@ final class Client
         public ?string $prestashopApiKeyEncrypted,
         public ?string $prestashopBlogApiKeyEncrypted,
         public ?string $prestashopReviewsApiKeyEncrypted,
+        public ?string $awCpfApiKeyEncrypted,
         public ?int $supplierId,
         public ?string $referencePrefix,
         public ?array $enabledAttributeGroupIds,
         public ?array $ignoredCategoryIds,
+        public ?array $fieldMapping,
         public ?string $logoUrl,
         public ?string $footerName,
         public int $tokenMonthlyLimit,
@@ -39,6 +41,7 @@ final class Client
             prestashopApiKeyEncrypted: $row['prestashop_api_key_encrypted'] ?? null,
             prestashopBlogApiKeyEncrypted: $row['prestashop_blog_api_key_encrypted'] ?? null,
             prestashopReviewsApiKeyEncrypted: $row['prestashop_reviews_api_key_encrypted'] ?? null,
+            awCpfApiKeyEncrypted: $row['aw_cpf_api_key_encrypted'] ?? null,
             supplierId: isset($row['supplier_id']) && $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
             referencePrefix: isset($row['reference_prefix']) && $row['reference_prefix'] !== null && $row['reference_prefix'] !== ''
                 ? (string) $row['reference_prefix'] : null,
@@ -47,6 +50,9 @@ final class Client
                 : null,
             ignoredCategoryIds: isset($row['ignored_category_ids']) && $row['ignored_category_ids'] !== null
                 ? (is_array($ic = json_decode((string) $row['ignored_category_ids'], true)) ? array_map('intval', $ic) : null)
+                : null,
+            fieldMapping: isset($row['field_mapping']) && $row['field_mapping'] !== null
+                ? (is_array($fm = json_decode((string) $row['field_mapping'], true)) ? $fm : null)
                 : null,
             logoUrl: $row['logo_url'] ?? null,
             footerName: $row['footer_name'] ?? null,

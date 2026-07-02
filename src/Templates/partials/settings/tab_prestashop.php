@@ -6,6 +6,7 @@ use App\Helpers\Renderer;
  * @var bool $has_api_key
  * @var bool $has_blog_api_key
  * @var bool $has_reviews_api_key
+ * @var bool $has_aw_cpf_api_key
  * @var string $csrf_token
  */
 ?>
@@ -78,6 +79,24 @@ use App\Helpers\Renderer;
                         </a>
                     </div>
                 <?php endif; ?>
+
+                <label class="field">
+                    <span class="field__label">
+                        Clé API Champs personnalisés (aw_customproductfield)
+                        <?php if ($has_aw_cpf_api_key ?? false): ?>
+                            <span class="badge badge--green" style="margin-left:6px;">Configurée</span>
+                        <?php endif; ?>
+                    </span>
+                    <input type="password" name="aw_cpf_api_key"
+                           placeholder="<?= ($has_aw_cpf_api_key ?? false) ? 'Laisser vide pour conserver l\'actuelle' : 'Coller la clé du module (X-API-Key)' ?>"
+                           autocomplete="off">
+                    <span class="field__hint">
+                        Clé du module <code>aw_customproductfield</code> installé sur la boutique
+                        (<code>/modules/aw_customproductfield/api.php</code>). Sert à écrire les champs personnalisés
+                        (ex : <code>price_nutriweb</code>, <code>ingredients</code>, <code>dluo</code>…) depuis le PIM.
+                        Récupérable côté Presta via <code>SELECT value FROM ps_configuration WHERE name = 'AW_CPF_API_KEY'</code>.
+                    </span>
+                </label>
 
                 <label class="field">
                     <span class="field__label">ID Fournisseur</span>

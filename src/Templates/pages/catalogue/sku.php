@@ -142,45 +142,14 @@ $fmtText = fn($v): string => $v === null || $v === '' ? '—' : Renderer::escape
                 // Sanitize : autorise <b>/<strong>/<em>/<br> (l'API renvoie du HTML pour les allergènes en gras).
                 $safeHtml = fn(string $s): string => strip_tags($s, '<b><strong><em><br>');
 
-                // Rendu récursif de l'arbre macro (children indentés).
-                $renderMacro = function (array $rows, int $depth = 0) use (&$renderMacro): string {
-                    $out = '';
-                    foreach ($rows as $r) {
-                        if (!is_array($r)) continue;
-                        $label = (string) ($r['label'] ?? '—');
-                        $unit = (string) ($r['unit'] ?? '');
-                        $val = $r['nutrifact']['label'] ?? $r['nutrifact']['formatted'] ?? null;
-                        if ($val === null && isset($r['nutrifact']['value'])) {
-                            $val = $r['nutrifact']['value'] . ($unit !== '' ? ' ' . $unit : '');
-                        }
-                        $ri = $r['nrv']['ri'] ?? null;
-                        $indent = $depth > 0 ? 'style="padding-left:' . (12 + $depth * 16) . 'px; color:var(--color-text-muted);"' : 'style="font-weight:600;"';
-                        $out .= '<tr>'
-                            . '<td ' . $indent . '>' . ($depth > 0 ? '↳ ' : '') . Renderer::escape($label) . '</td>'
-                            . '<td class="nutrifacts-table__num">' . ($val !== null ? Renderer::escape((string) $val) : '—') . '</td>'
-                            . '<td class="nutrifacts-table__num">' . ($ri !== null && $ri !== '' ? Renderer::escape((string) $ri) : '—') . '</td>'
-                            . '</tr>';
-                        if (!empty($r['children']) && is_array($r['children'])) {
-                            $out .= $renderMacro($r['children'], $depth + 1);
-                        }
-                    }
-                    return $out;
-                };
+                // Rendu délégué à App\Helpers\NutrifactsRenderer (partagé avec le push mapping,
+                // pour que le HTML poussé côté Presta soit identique à celui affiché ici).
+                $macroMicroHtml = \App\Helpers\NutrifactsRenderer::renderMacroAndMicro($nutrifacts);
+                $micro = $nutrifacts['micro'] ?? null;
             ?>
-                <?php if (is_array($macro) && $macro !== []): ?>
+                <?php if ($macroMicroHtml !== ''): ?>
                     <div style="overflow-x:auto;">
-                        <table class="nutrifacts-table">
-                            <thead>
-                                <tr>
-                                    <th>Nutriment</th>
-                                    <th class="nutrifacts-table__num"><?= Renderer::escape($forHeader) ?></th>
-                                    <th class="nutrifacts-table__num" <?= $riLong !== '' ? 'title="' . Renderer::escape($riLong) . '"' : '' ?>><?= Renderer::escape($riHeader) ?></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?= $renderMacro($macro) ?>
-                            </tbody>
-                        </table>
+                        <?= $macroMicroHtml ?>
                     </div>
                 <?php else: ?>
                     <p style="color:var(--color-text-muted); font-size:13px;">Pas de bloc <code>macro</code> exploitable dans la réponse.</p>

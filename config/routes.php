@@ -64,6 +64,7 @@ return [
     ['POST', '/settings/editorial', [SettingsController::class, 'saveEditorial'], true],
     ['POST', '/settings/nutriweb', [SettingsController::class, 'saveNutriweb'], true],
     ['POST', '/settings/attributes', [SettingsController::class, 'saveAttributes'], true],
+    ['POST', '/settings/mapping', [SettingsController::class, 'saveMapping'], true],
     ['POST', '/settings/field-instructions', [SettingsController::class, 'saveFieldInstructions'], true],
 
     // Catégories
@@ -81,6 +82,8 @@ return [
     ['GET',  '/produits/{id}', [ProductDetailController::class, 'show'], true],
     ['POST', '/produits/{id}/save', [ProductDetailController::class, 'saveOptimized'], true],
     ['POST', '/produits/{id}/push', [ProductDetailController::class, 'push'], true],
+    ['POST', '/produits/{id}/sync-mapping', [ProductDetailController::class, 'syncMapping'], true],
+    ['POST', '/produits/{id}/sync-mapping/{comboId}', [ProductDetailController::class, 'syncMappingCombination'], true],
     ['POST', '/produits/{id}/generate', [ProductDetailController::class, 'generate'], true],
     ['POST', '/produits/{id}/gallery/reorder', [ProductDetailController::class, 'reorderGallery'], true],
     ['POST', '/produits/{id}/compare-prices', [ProductDetailController::class, 'comparePrices'], true],

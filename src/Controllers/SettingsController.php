@@ -17,6 +17,7 @@ use App\Repositories\PasswordTokenRepository;
 use App\Repositories\UserClientRepository;
 use App\Repositories\UserRepository;
 use App\Services\AiProviders;
+use App\Services\AwCpfClient;
 use App\Services\ClientResolver;
 use App\Services\Mailer;
 use App\Services\PrestaShopClient;
@@ -26,7 +27,83 @@ use App\Session;
 
 final class SettingsController extends BaseController
 {
-    private const VALID_TABS = ['prestashop', 'account', 'users', 'ai-tools', 'editorial', 'nutriweb', 'attributes', 'fields'];
+    private const VALID_TABS = ['prestashop', 'account', 'users', 'ai-tools', 'editorial', 'nutriweb', 'attributes', 'fields', 'mapping'];
+
+    /**
+     * Catalogue des champs Nutriweb (source du mapping). Groupé pour l'affichage.
+     * @return array<string, list<array{key:string, label:string, hint?:string}>>
+     */
+    public static function nutriwebSources(): array
+    {
+        return [
+            'Identifiants' => [
+                ['key' => 'sku',        'label' => 'SKU'],
+                ['key' => 'barcode',    'label' => 'Code-barres (EAN)'],
+                ['key' => 'permalink',  'label' => 'Permalink'],
+            ],
+            'Descriptif' => [
+                ['key' => 'name',       'label' => 'Nom'],
+                ['key' => 'brand',      'label' => 'Marque'],
+                ['key' => 'size',       'label' => 'Taille'],
+                ['key' => 'color',      'label' => 'Couleur'],
+                ['key' => 'flavor',     'label' => 'Saveur'],
+                ['key' => 'image_url',  'label' => 'URL image'],
+            ],
+            'Prix / Stock' => [
+                ['key' => 'price_base',     'label' => 'Prix base HT',       'hint' => 'price.base.value'],
+                ['key' => 'price_selling',  'label' => 'Prix Achat HT',      'hint' => 'price.selling.value'],
+                ['key' => 'price_retail',   'label' => 'Prix public TTC',    'hint' => 'price.retail.value'],
+                ['key' => 'purchase_price', 'label' => 'Prix d\'achat amont'],
+                ['key' => 'stock',          'label' => 'Stock'],
+            ],
+            'Nutrifacts (live)' => [
+                ['key' => 'nutrifacts.ingredient', 'label' => 'Ingrédients (HTML)'],
+                ['key' => 'nutrifacts.allergen',   'label' => 'Allergènes (HTML)'],
+                ['key' => 'nutrifacts.warnings',   'label' => 'Avertissements'],
+                ['key' => 'nutrifacts.macro',      'label' => 'Table nutrition (JSON)'],
+            ],
+        ];
+    }
+
+    /**
+     * Catalogue des destinations PrestaShop. Groupé pour l'affichage.
+     * Convention de clé : `product.<field>`, `combination.<field>`, `custom.<key>`.
+     *
+     * @param list<array{key:string, label:string}> $customFields Liste des champs
+     *        custom récupérée en live via AwCpfClient (schema). Vide = pas de bloc custom.
+     * @return array<string, list<array{key:string, label:string}>>
+     */
+    public static function prestaDestinations(array $customFields = []): array
+    {
+        $out = [
+            'Produit (natif)' => [
+                ['key' => 'product.name',              'label' => 'Nom'],
+                ['key' => 'product.reference',         'label' => 'Référence'],
+                ['key' => 'product.ean13',             'label' => 'EAN13'],
+                ['key' => 'product.price',             'label' => 'Prix HT'],
+                ['key' => 'product.wholesale_price',   'label' => 'Prix d\'achat'],
+                ['key' => 'product.description',       'label' => 'Description longue'],
+                ['key' => 'product.description_short', 'label' => 'Description courte'],
+                ['key' => 'product.meta_title',        'label' => 'Meta title'],
+                ['key' => 'product.meta_description',  'label' => 'Meta description'],
+                ['key' => 'product.meta_keywords',     'label' => 'Meta keywords'],
+                ['key' => 'product.link_rewrite',      'label' => 'Slug (link_rewrite)'],
+                ['key' => 'product.id_manufacturer',   'label' => 'Marque (id)'],
+                ['key' => 'product.weight',            'label' => 'Poids'],
+            ],
+            'Déclinaison (natif)' => [
+                ['key' => 'combination.reference',           'label' => 'Référence décli'],
+                ['key' => 'combination.ean13',               'label' => 'EAN13 décli'],
+                ['key' => 'combination.supplier_reference',  'label' => 'Réf fournisseur décli'],
+                ['key' => 'combination.wholesale_price',     'label' => 'Prix achat décli'],
+                ['key' => 'combination.price_impact',        'label' => 'Delta prix décli'],
+            ],
+        ];
+        if ($customFields !== []) {
+            $out['Champ custom (aw_customproductfield)'] = $customFields;
+        }
+        return $out;
+    }
 
     public function show(): void
     {
@@ -86,6 +163,7 @@ final class SettingsController extends BaseController
             $data['has_api_key'] = $client->prestashopApiKeyEncrypted !== null;
             $data['has_blog_api_key'] = $client->prestashopBlogApiKeyEncrypted !== null;
             $data['has_reviews_api_key'] = $client->prestashopReviewsApiKeyEncrypted !== null;
+            $data['has_aw_cpf_api_key'] = $client->awCpfApiKeyEncrypted !== null;
             // Liste des catégories Presta (pour le sélecteur "catégories à ignorer").
             // Best-effort : si l'API plante ou pas de clé, on n'affiche pas le sélecteur.
             $categoriesFlat = [];
@@ -113,6 +191,43 @@ final class SettingsController extends BaseController
             $data['fields_instructions'] = $byEntity;
         }
 
+        if ($tab === 'mapping') {
+            // Récupère en live le schéma des champs custom aw_customproductfield
+            // (best-effort : si l'API plante ou la clé est absente, on continue
+            // avec un bloc custom vide et un message).
+            $customFields = [];
+            $customError = null;
+            $customUrl = '';
+            $customRaw = '';
+            $aw = new AwCpfClient($client);
+            if ($aw->isConfigured()) {
+                try {
+                    $schema = $aw->fetchSchema();
+                    foreach ($schema as $f) {
+                        if (empty($f['enabled'])) continue;
+                        $label = $f['label'] !== '' ? $f['label'] : $f['key'];
+                        $customFields[] = [
+                            'key' => 'custom.' . $f['key'],
+                            'label' => $label . ' (' . $f['type'] . ($f['lang'] ? ', lang' : '') . ')',
+                        ];
+                    }
+                } catch (\Throwable $e) {
+                    $customError = $e->getMessage();
+                }
+                $customUrl = $aw->getLastCalledUrl();
+                $customRaw = $aw->getLastRawBody();
+            } else {
+                $customError = 'Clé API aw_customproductfield non configurée (Paramètres → PrestaShop).';
+            }
+            $data['nutriweb_sources'] = self::nutriwebSources();
+            $data['presta_destinations'] = self::prestaDestinations($customFields);
+            $data['current_mapping'] = $client->fieldMapping ?? [];
+            $data['custom_fields_error'] = $customError;
+            $data['custom_fields_count'] = count($customFields);
+            $data['custom_fields_url'] = $customUrl;
+            $data['custom_fields_raw'] = $customRaw;
+        }
+
         $this->renderApp('pages.settings.index', $data, [
             'active' => 'settings',
             'page_title' => 'Paramètres',
@@ -136,6 +251,8 @@ final class SettingsController extends BaseController
         $blogApiKey = $blogApiKey !== null ? trim($blogApiKey) : null;
         $reviewsApiKey = $this->input('prestashop_reviews_api_key');
         $reviewsApiKey = $reviewsApiKey !== null ? trim($reviewsApiKey) : null;
+        $awCpfApiKey = $this->input('aw_cpf_api_key');
+        $awCpfApiKey = $awCpfApiKey !== null ? trim($awCpfApiKey) : null;
         $supplierIdRaw = $this->input('supplier_id');
         $referencePrefix = $this->input('reference_prefix');
         $referencePrefix = $referencePrefix !== null ? trim($referencePrefix) : null;
@@ -157,6 +274,10 @@ final class SettingsController extends BaseController
         if ($reviewsApiKey !== null && $reviewsApiKey !== '') {
             $sets[] = 'prestashop_reviews_api_key_encrypted = :reviews_api_key';
             $params[':reviews_api_key'] = Encryption::encrypt($reviewsApiKey);
+        }
+        if ($awCpfApiKey !== null && $awCpfApiKey !== '') {
+            $sets[] = 'aw_cpf_api_key_encrypted = :aw_cpf_api_key';
+            $params[':aw_cpf_api_key'] = Encryption::encrypt($awCpfApiKey);
         }
 
         // supplier_id : toujours mis à jour (peut être vidé en saisissant chaîne vide)
@@ -491,6 +612,56 @@ final class SettingsController extends BaseController
 
         $this->flashSuccess(count($ids) . ' groupe' . (count($ids) > 1 ? 's' : '') . ' d\'attribut sélectionné' . (count($ids) > 1 ? 's' : '') . '.');
         $this->redirect('/settings?tab=attributes');
+    }
+
+    // -------------------------------------------------------------------------
+    // Mapping tab (Nutriweb -> PrestaShop)
+    // -------------------------------------------------------------------------
+
+    public function saveMapping(): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+        $client = $this->requireClientOrRedirect();
+
+        // Whitelist des sources (statique) et des destinations natives.
+        // Les destinations `custom.*` sont dynamiques (venues du schema live) : on les
+        // accepte via un préfixe pour ne pas rejeter les nouveaux champs custom quand
+        // l'API du module n'est pas atteignable au moment du save.
+        $validSources = [];
+        foreach (self::nutriwebSources() as $group) {
+            foreach ($group as $it) $validSources[$it['key']] = true;
+        }
+        $validNativeDests = [];
+        foreach (self::prestaDestinations() as $group) {
+            foreach ($group as $it) $validNativeDests[$it['key']] = true;
+        }
+
+        $raw = $_POST['mapping'] ?? [];
+        $clean = [];
+        if (is_array($raw)) {
+            foreach ($raw as $src => $dest) {
+                $src = trim((string) $src);
+                $dest = trim((string) $dest);
+                if ($src === '' || $dest === '') continue;
+                if (!isset($validSources[$src])) continue;
+                $isNative = isset($validNativeDests[$dest]);
+                $isCustom = str_starts_with($dest, 'custom.') && preg_match('/^custom\.[a-zA-Z0-9_.-]+$/', $dest) === 1;
+                if (!$isNative && !$isCustom) continue;
+                $clean[$src] = $dest;
+            }
+        }
+
+        $pdo = \App\Database::pdo();
+        $pdo->prepare('UPDATE clients SET field_mapping = :m, updated_at = NOW() WHERE id = :id')
+            ->execute([
+                ':m' => $clean === [] ? null : json_encode($clean, JSON_UNESCAPED_UNICODE),
+                ':id' => $client->id,
+            ]);
+
+        $n = count($clean);
+        $this->flashSuccess($n . ' correspondance' . ($n > 1 ? 's' : '') . ' enregistrée' . ($n > 1 ? 's' : '') . '.');
+        $this->redirect('/settings?tab=mapping');
     }
 
     // -------------------------------------------------------------------------

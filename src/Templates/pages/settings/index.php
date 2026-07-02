@@ -14,6 +14,7 @@ $tabs = [
     ['key' => 'nutriweb',   'label' => 'Nutriweb'],
     ['key' => 'attributes', 'label' => 'Attributs'],
     ['key' => 'fields',     'label' => 'Champs'],
+    ['key' => 'mapping',    'label' => 'Mapping'],
 ];
 ?>
 <div class="page-header">
@@ -43,6 +44,7 @@ $tabs = [
         'nutriweb'   => 'partials.settings.tab_nutriweb',
         'attributes' => 'partials.settings.tab_attributes',
         'fields'     => 'partials.settings.tab_fields',
+        'mapping'    => 'partials.settings.tab_mapping',
     ];
     echo Renderer::render($partials[$active_tab], get_defined_vars());
     ?>

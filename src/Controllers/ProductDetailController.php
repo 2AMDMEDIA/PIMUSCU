@@ -6,16 +6,20 @@ namespace App\Controllers;
 
 use App\Helpers\Csrf;
 use App\Helpers\JsonRescue;
+use App\Helpers\NutrifactsRenderer;
 use App\Middleware\Auth;
 use App\Repositories\ClientEditorialRepository;
 use App\Repositories\ClientFieldInstructionsRepository;
 use App\Repositories\GeneratedImageRepository;
 use App\Repositories\PrestaProductCombinationRepository;
 use App\Repositories\PrestaProductRepository;
+use App\Repositories\NutriwebCatalogRepository;
 use App\Repositories\ProductPriceAnalysisRepository;
 use App\Services\AiService;
+use App\Services\AwCpfClient;
 use App\Services\ClientResolver;
 use App\Services\KieClient;
+use App\Services\NutriwebClient;
 use App\Services\PriceComparator;
 use App\Services\PrestaShopClient;
 use App\Services\ProductPromptBuilder;
@@ -806,5 +810,229 @@ final class ProductDetailController extends BaseController
         }
         $trimmed = trim($value);
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    // ------------------------------------------------------------------------
+    // Sync du mapping Nutriweb -> PrestaShop (aw_customproductfield)
+    // ------------------------------------------------------------------------
+
+    /**
+     * POST /produits/{id}/sync-mapping : pour chaque SKU Nutriweb matché à ce
+     * produit, résout les valeurs sources (colonnes du cache + nutrifacts live)
+     * et pousse les champs custom mappés vers le module aw_customproductfield.
+     * v1 : seules les destinations `custom.*` sont poussées ; les mappings
+     * `product.*` / `combination.*` sont dénombrés dans le retour.
+     */
+    /**
+     * POST /produits/{id}/sync-mapping — pousse pour tous les SKUs matchés au produit.
+     */
+    public function syncMapping(string $id): void
+    {
+        [$client, $row, $back] = $this->requireProductForSync($id);
+        $catRows = (new NutriwebCatalogRepository())->listMatchedToProduct($client->id, (int) $row['presta_id']);
+        if ($catRows === []) {
+            $this->flashError('Aucun SKU Nutriweb lié à ce produit. Synchronise d\'abord le catalogue Nutriweb.');
+            $this->redirect($back);
+        }
+        $this->pushMappingAndRedirect($client, (int) $row['presta_id'], $catRows, $back, 'ce produit');
+    }
+
+    /**
+     * POST /produits/{id}/sync-mapping/{comboId} — pousse pour UNE déclinaison précise.
+     */
+    public function syncMappingCombination(string $id, string $comboId): void
+    {
+        [$client, $row, $back] = $this->requireProductForSync($id);
+        $comboId = (int) $comboId;
+        if ($comboId <= 0) {
+            $this->flashError('ID de déclinaison invalide.');
+            $this->redirect($back);
+        }
+        $catRow = (new NutriwebCatalogRepository())->findByCombination($client->id, $comboId);
+        if ($catRow === null) {
+            $this->flashError('Aucun SKU Nutriweb lié à la déclinaison D#' . $comboId . '. Synchronise d\'abord le catalogue Nutriweb.');
+            $this->redirect($back);
+        }
+        $this->pushMappingAndRedirect($client, (int) $row['presta_id'], [$catRow], $back, 'la déclinaison D#' . $comboId);
+    }
+
+    /**
+     * Charge le client + le produit + le mapping et vérifie qu'ils existent.
+     * @return array{0:\App\Models\Client, 1:array<string,mixed>, 2:string} [$client, $row, $backUrl]
+     */
+    private function requireProductForSync(string $id): array
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+        $row = (new PrestaProductRepository())->findById($client->id, $id);
+        if ($row === null) {
+            $this->flashError('Produit introuvable.');
+            $this->redirect('/produits');
+        }
+        $back = '/produits/' . urlencode((string) $row['id']);
+        if (empty($client->fieldMapping)) {
+            $this->flashError('Aucune correspondance dans Paramètres → Mapping.');
+            $this->redirect($back);
+        }
+        return [$client, $row, $back];
+    }
+
+    /**
+     * Coeur du sync : construit le batch depuis les rows catalog + le mapping,
+     * pousse au module aw_customproductfield, flash + redirect.
+     *
+     * @param list<array<string,mixed>> $catRows
+     */
+    private function pushMappingAndRedirect(\App\Models\Client $client, int $prestaProductId, array $catRows, string $back, string $scopeLabel): void
+    {
+        $mapping = $client->fieldMapping ?? [];
+
+        // Sépare par type de destination
+        $customMappings = [];   // src_key => cpf_field
+        $skippedNativeCount = 0;
+        foreach ($mapping as $src => $dest) {
+            if (str_starts_with((string) $dest, 'custom.')) {
+                $customMappings[(string) $src] = substr((string) $dest, strlen('custom.'));
+            } else {
+                $skippedNativeCount++;
+            }
+        }
+
+        $aw = new AwCpfClient($client);
+        if (!$aw->isConfigured()) {
+            $this->flashError('Clé API aw_customproductfield non configurée (Paramètres → PrestaShop).');
+            $this->redirect($back);
+        }
+
+        // Schema pour connaître les champs lang.
+        $langByField = [];
+        try {
+            foreach ($aw->fetchSchema() as $f) {
+                $langByField[$f['key']] = !empty($f['lang']);
+            }
+        } catch (\Throwable $e) {
+            error_log('syncMapping fetchSchema failed: ' . $e->getMessage());
+        }
+
+        // Faut-il fetcher les nutrifacts en live ?
+        $needsNutrifacts = false;
+        foreach (array_keys($mapping) as $src) {
+            if (str_starts_with((string) $src, 'nutrifacts.')) {
+                $needsNutrifacts = true;
+                break;
+            }
+        }
+
+        $batch = [];
+        $fetchErrors = [];
+        foreach ($catRows as $catRow) {
+            $sku = (string) ($catRow['sku'] ?? '');
+            if ($sku === '') continue;
+            $idProductAttr = (int) ($catRow['presta_combination_id'] ?? 0);
+
+            $nutrifacts = null;
+            if ($needsNutrifacts && $customMappings !== []) {
+                try {
+                    $payload = (new NutriwebClient($client->id))->fetchSkuDetail($sku, 'nutrifacts');
+                    $nutrifacts = self::extractNutrifactsFromPayload($payload);
+                } catch (\Throwable $e) {
+                    $fetchErrors[] = 'SKU ' . $sku . ' nutrifacts KO : ' . $e->getMessage();
+                }
+            }
+
+            foreach ($customMappings as $srcKey => $cpfField) {
+                $val = self::resolveSourceValue($srcKey, $catRow, $nutrifacts);
+                if ($val === null || $val === '') continue;
+                $update = [
+                    'id_product' => $prestaProductId,
+                    'id_product_attribute' => $idProductAttr,
+                    'field' => $cpfField,
+                    'value' => $val,
+                ];
+                if (!empty($langByField[$cpfField])) {
+                    $update['id_lang'] = 1;
+                }
+                $batch[] = $update;
+            }
+        }
+
+        if ($batch === []) {
+            $msg = 'Aucun champ custom à pousser pour ' . $scopeLabel . ' (mapping vide, valeurs sources absentes, ou seuls des mappings natifs configurés).';
+            if ($fetchErrors !== []) $msg .= ' Erreurs nutrifacts : ' . implode(' | ', $fetchErrors);
+            $this->flashError($msg);
+            $this->redirect($back);
+        }
+
+        try {
+            $result = $aw->setBatch($batch);
+        } catch (\Throwable $e) {
+            error_log('syncMapping setBatch failed: ' . $e->getMessage());
+            $this->flashError('Échec push aw_customproductfield : ' . $e->getMessage());
+            $this->redirect($back);
+        }
+
+        $sent = count($batch);
+        $applied = (int) ($result['applied'] ?? 0);
+        $errs = array_merge($fetchErrors, $result['errors'] ?? []);
+        $msg = "Sync mapping OK pour {$scopeLabel} : {$sent} champ" . ($sent > 1 ? 's' : '') . " envoyé" . ($sent > 1 ? 's' : '') . ", {$applied} appliqué" . ($applied > 1 ? 's' : '') . " côté module.";
+        if ($skippedNativeCount > 0) {
+            $msg .= " (Note : {$skippedNativeCount} mapping" . ($skippedNativeCount > 1 ? 's' : '') . " natif" . ($skippedNativeCount > 1 ? 's' : '') . " ignoré" . ($skippedNativeCount > 1 ? 's' : '') . " en v1.)";
+        }
+        if ($errs !== []) {
+            $this->flashError($msg . ' Erreurs : ' . implode(' | ', $errs));
+        } else {
+            $this->flashSuccess($msg);
+        }
+        $this->redirect($back);
+    }
+
+    /**
+     * Extrait récursivement la première occurrence de la clé `nutrifacts` dans le payload.
+     * @return array<string,mixed>|null
+     */
+    private static function extractNutrifactsFromPayload(mixed $node): ?array
+    {
+        if (!is_array($node)) return null;
+        if (isset($node['nutrifacts']) && is_array($node['nutrifacts'])) {
+            return $node['nutrifacts'];
+        }
+        foreach ($node as $child) {
+            if (is_array($child)) {
+                $found = self::extractNutrifactsFromPayload($child);
+                if ($found !== null) return $found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Résout la valeur pour une clé source du mapping.
+     *  - `nutrifacts.<key>` : lit dans le payload live (ex. nutrifacts.ingredient).
+     *    Cas spécial : `nutrifacts.macro` → rendu HTML macro + micro
+     *    (via NutrifactsRenderer, HTML identique à la page /catalogue/sku/{sku}).
+     *  - autre : lit dans la row nutriweb_catalog (colonnes du cache).
+     */
+    private static function resolveSourceValue(string $srcKey, array $catRow, ?array $nutrifacts): mixed
+    {
+        if (str_starts_with($srcKey, 'nutrifacts.')) {
+            if ($nutrifacts === null) return null;
+            $path = substr($srcKey, strlen('nutrifacts.'));
+            if ($path === 'macro') {
+                // On rend macro + micro dans un même bloc HTML (micro n'est ajouté
+                // que s'il est présent et non vide dans le payload).
+                $html = NutrifactsRenderer::renderMacroAndMicro($nutrifacts);
+                return $html !== '' ? $html : null;
+            }
+            if (!array_key_exists($path, $nutrifacts)) return null;
+            $v = $nutrifacts[$path];
+            return is_array($v) ? json_encode($v, JSON_UNESCAPED_UNICODE) : $v;
+        }
+        if (!array_key_exists($srcKey, $catRow)) return null;
+        return $catRow[$srcKey];
     }
 }

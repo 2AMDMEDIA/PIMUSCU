@@ -35,6 +35,40 @@ final class NutriwebCatalogRepository
     }
 
     /**
+     * Charge la row Nutriweb liée à une déclinaison PrestaShop précise.
+     * @return array<string,mixed>|null
+     */
+    public function findByCombination(string $clientId, int $prestaCombinationId): ?array
+    {
+        if ($prestaCombinationId <= 0) return null;
+        $stmt = $this->pdo()->prepare(
+            'SELECT * FROM nutriweb_catalog
+              WHERE client_id = :client_id AND presta_combination_id = :cid
+              LIMIT 1'
+        );
+        $stmt->execute([':client_id' => $clientId, ':cid' => $prestaCombinationId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * Retourne tous les SKUs Nutriweb matchés à un produit PrestaShop donné
+     * (soit au niveau produit racine, soit à une de ses combinaisons).
+     * @return list<array<string,mixed>>
+     */
+    public function listMatchedToProduct(string $clientId, int $prestaProductId): array
+    {
+        if ($prestaProductId <= 0) return [];
+        $stmt = $this->pdo()->prepare(
+            'SELECT * FROM nutriweb_catalog
+              WHERE client_id = :client_id AND presta_product_id = :pid
+              ORDER BY size_rank ASC, sku ASC'
+        );
+        $stmt->execute([':client_id' => $clientId, ':pid' => $prestaProductId]);
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Retourne tous les SKUs partageant le meme permalink (siblings d'un produit Nutriweb).
      * @return list<array<string,mixed>>
      */
