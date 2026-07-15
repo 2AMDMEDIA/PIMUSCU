@@ -130,13 +130,29 @@ use App\Helpers\Renderer;
             $ignored_category_ids = $ignored_category_ids ?? [];
             $categories_error = $categories_error ?? null;
             ?>
+            <?php $categories_from_cache = $categories_from_cache ?? false; ?>
             <div class="field" style="margin-top:8px;">
-                <span class="field__label">Catégories à ignorer</span>
+                <span class="field__label">
+                    Catégories à ignorer
+                    <?php if (!empty($categories_flat)): ?>
+                        <a href="/settings?tab=prestashop&refresh_cats=1"
+                           title="Recharger la liste depuis PrestaShop (peut prendre plusieurs secondes)"
+                           style="margin-left:6px; font-size:11px; font-weight:400; text-decoration:none;">🔄 Rafraîchir</a>
+                        <?php if ($categories_from_cache): ?>
+                            <span style="margin-left:6px; font-size:11px; font-weight:400; color:var(--color-text-muted);">
+                                (depuis le cache, 10 min)
+                            </span>
+                        <?php endif; ?>
+                    <?php endif; ?>
+                </span>
                 <span class="field__hint" style="margin-bottom:8px;">
                     Les produits appartenant aux catégories cochées seront <strong>ignorés à la synchronisation</strong>
                     (non importés dans le PIM ; ceux déjà importés sont retirés au prochain sync produits).
                     <?php if ($categories_error !== null): ?>
                         <br><span style="color:#dc2626;">⚠ Impossible de charger les catégories : <?= Renderer::escape($categories_error) ?></span>
+                        <?php if (!empty($categories_flat)): ?>
+                            <br><span style="color:var(--color-text-muted);">Ancien cache réutilisé — les cases cochées restent valables.</span>
+                        <?php endif; ?>
                     <?php elseif (empty($categories_flat)): ?>
                         <br><span style="color:var(--color-text-muted);">Configure d'abord la clé API PrestaShop puis recharge la page.</span>
                     <?php endif; ?>
