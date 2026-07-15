@@ -59,7 +59,7 @@ final class PrestaProductRepository
      *
      * @return array{0:list<string>, 1:array<string,mixed>}
      */
-    private function buildWhere(string $clientId, string $search, string $filter, string $status, int $categoryId = 0): array
+    private function buildWhere(string $clientId, string $search, string $filter, string $status, int $categoryId = 0, string $catalog = 'all'): array
     {
         $where = ['client_id = :client_id'];
         $params = [':client_id' => $clientId];
@@ -93,6 +93,17 @@ final class PrestaProductRepository
             $params[':cat_id'] = $categoryId;
         }
 
+        // Filtre "présent / absent du catalogue Nutriweb" : EXISTS / NOT EXISTS
+        // sur nutriweb_catalog.presta_product_id. Placeholder distinct pour éviter
+        // le HY093 (PDO natif : réutilisation d'un même nom interdite).
+        if ($catalog === 'in') {
+            $where[] = 'EXISTS (SELECT 1 FROM nutriweb_catalog nc WHERE nc.client_id = :cid_cat AND nc.presta_product_id = presta_products.presta_id)';
+            $params[':cid_cat'] = $clientId;
+        } elseif ($catalog === 'out') {
+            $where[] = 'NOT EXISTS (SELECT 1 FROM nutriweb_catalog nc WHERE nc.client_id = :cid_cat AND nc.presta_product_id = presta_products.presta_id)';
+            $params[':cid_cat'] = $clientId;
+        }
+
         return [$where, $params];
     }
 
@@ -104,9 +115,9 @@ final class PrestaProductRepository
      * @param int    $categoryId  presta_id de la catégorie (0 = pas de filtre)
      * @return list<array<string,mixed>>
      */
-    public function listForClient(string $clientId, string $search = '', string $filter = 'all', int $page = 1, int $perPage = 60, string $status = 'all', int $categoryId = 0): array
+    public function listForClient(string $clientId, string $search = '', string $filter = 'all', int $page = 1, int $perPage = 60, string $status = 'all', int $categoryId = 0, string $catalog = 'all'): array
     {
-        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId);
+        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog);
         $offset = max(0, ($page - 1) * $perPage);
 
         $sql = 'SELECT * FROM presta_products WHERE ' . implode(' AND ', $where) . ' ORDER BY name ASC LIMIT :limit OFFSET :offset';
@@ -120,9 +131,9 @@ final class PrestaProductRepository
         return $stmt->fetchAll();
     }
 
-    public function countForClient(string $clientId, string $search = '', string $filter = 'all', string $status = 'all', int $categoryId = 0): int
+    public function countForClient(string $clientId, string $search = '', string $filter = 'all', string $status = 'all', int $categoryId = 0, string $catalog = 'all'): int
     {
-        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId);
+        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog);
         $sql = 'SELECT COUNT(*) FROM presta_products WHERE ' . implode(' AND ', $where);
         $stmt = $this->pdo()->prepare($sql);
         $stmt->execute($params);
@@ -219,13 +230,27 @@ final class PrestaProductRepository
         );
         $stmt->execute([':client_id' => $clientId]);
         $row = $stmt->fetch() ?: ['total' => 0, 'with_desc' => 0, 'without_desc' => 0, 'cms' => 0, 'active_count' => 0, 'inactive_count' => 0];
+
+        // Compte des produits présents dans le catalogue Nutriweb (au moins 1 SKU matché).
+        $catStmt = $this->pdo()->prepare(
+            'SELECT COUNT(DISTINCT nc.presta_product_id)
+               FROM nutriweb_catalog nc
+               JOIN presta_products pp ON pp.client_id = nc.client_id AND pp.presta_id = nc.presta_product_id
+              WHERE nc.client_id = :cid AND nc.presta_product_id IS NOT NULL'
+        );
+        $catStmt->execute([':cid' => $clientId]);
+        $catalogPresent = (int) $catStmt->fetchColumn();
+
+        $total = (int) $row['total'];
         return [
-            'total' => (int) $row['total'],
+            'total' => $total,
             'with_desc' => (int) $row['with_desc'],
             'without_desc' => (int) $row['without_desc'],
             'cms' => (int) $row['cms'],
             'active' => (int) $row['active_count'],
             'inactive' => (int) $row['inactive_count'],
+            'catalog_in' => $catalogPresent,
+            'catalog_out' => max(0, $total - $catalogPresent),
         ];
     }
 

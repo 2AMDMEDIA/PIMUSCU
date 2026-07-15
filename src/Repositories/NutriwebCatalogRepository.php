@@ -200,15 +200,23 @@ final class NutriwebCatalogRepository
 
     /**
      * Recalcule les colonnes presta_product_id / presta_combination_id pour TOUS
-     * les SKUs du client, en joignant presta_products + presta_product_combinations
-     * sur supplier_reference = sku. Les combinations sont prioritaires.
+     * les SKUs du client. 4 passes, priorité croissante (chaque passe écrase la
+     * précédente si elle matche) :
+     *   1. presta_products.supplier_reference = sku
+     *   2. presta_product_combinations.supplier_reference = sku
+     *   3. presta_products.reference = <prefix> + sku
+     *   4. presta_product_combinations.reference = <prefix> + sku (final)
+     * → la référence prime sur la supplier_reference, et la décli prime sur le
+     * produit racine (plus spécifique). $referencePrefix = valeur du client
+     * (Paramètres → PrestaShop → « Préfixe Référence »). Vide = match direct
+     * reference = sku sans préfixe.
      *
      * IMPORTANT : ne WIPE PAS avant le recompute. Les liens directs ecrits par
      * setPrestaLink() (apres /catalogue/create) sont conserves meme si presta_products
      * n'a pas encore ete sync. Sinon un /catalogue/sync apres une creation produit
      * mettait tout en 'non lie' tant que /produits/sync n'avait pas tourne.
      */
-    public function recomputeMatches(string $clientId): void
+    public function recomputeMatches(string $clientId, string $referencePrefix = ''): void
     {
         $pdo = $this->pdo();
 
@@ -240,6 +248,35 @@ final class NutriwebCatalogRepository
                     nc.presta_combination_id = pc.presta_combination_id
               WHERE nc.client_id = :cid'
         )->execute([':cid' => $clientId]);
+
+        // 3) Match produit racine par reference (prio > supplier_ref).
+        //    Permissif : accepte `<prefix>+sku` (déclis prefixées) OU `sku` direct
+        //    (produits simples dont la ref = sku sans préfixe).
+        $pdo->prepare(
+            'UPDATE nutriweb_catalog nc
+               JOIN presta_products pp
+                 ON pp.client_id = nc.client_id
+                AND pp.reference IS NOT NULL
+                AND pp.reference <> ""
+                AND (pp.reference = CONCAT(:prefix, nc.sku) OR pp.reference = nc.sku)
+                SET nc.presta_product_id = pp.presta_id,
+                    nc.presta_combination_id = NULL
+              WHERE nc.client_id = :cid'
+        )->execute([':cid' => $clientId, ':prefix' => $referencePrefix]);
+
+        // 4) Match combination par reference (prio maximale).
+        //    Idem : accepte `<prefix>+sku` OU `sku` direct.
+        $pdo->prepare(
+            'UPDATE nutriweb_catalog nc
+               JOIN presta_product_combinations pc
+                 ON pc.client_id = nc.client_id
+                AND pc.reference IS NOT NULL
+                AND pc.reference <> ""
+                AND (pc.reference = CONCAT(:prefix, nc.sku) OR pc.reference = nc.sku)
+                SET nc.presta_product_id = pc.presta_product_id,
+                    nc.presta_combination_id = pc.presta_combination_id
+              WHERE nc.client_id = :cid'
+        )->execute([':cid' => $clientId, ':prefix' => $referencePrefix]);
 
         // 3) Invalidation des liens orphelins : si presta_product_id pointe sur un
         //    produit qui n'existe plus dans le cache presta_products (ex supprime

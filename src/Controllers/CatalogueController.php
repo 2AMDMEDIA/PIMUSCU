@@ -256,7 +256,7 @@ final class CatalogueController extends BaseController
                 fn($s) => $s !== ''
             )));
             $deleted = $catalogRepo->deleteStale($client->id, $currentSkus);
-            $catalogRepo->recomputeMatches($client->id);
+            $catalogRepo->recomputeMatches($client->id, (string) ($client->referencePrefix ?? ''));
         } catch (\Throwable $e) {
             error_log('CatalogueController::sync save FAIL: ' . $e->getMessage());
             $this->flashError('Échec sauvegarde : ' . $e->getMessage());

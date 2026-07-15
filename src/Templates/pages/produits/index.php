@@ -26,11 +26,12 @@ use App\Helpers\Renderer;
 
 /**
  * @var list<array<string,mixed>> $products
- * @var array{total:int,with_desc:int,without_desc:int,cms:int,active:int,inactive:int} $stats
+ * @var array{total:int,with_desc:int,without_desc:int,cms:int,active:int,inactive:int,catalog_in:int,catalog_out:int} $stats
  * @var int $total_filtered
  * @var string $search
  * @var string $filter
  * @var string $status
+ * @var string $catalog
  * @var int $category
  * @var list<array{presta_id:int,name:string,product_count:int}> $category_options
  * @var int $page
@@ -39,12 +40,14 @@ use App\Helpers\Renderer;
  * @var string $csrf_token
  */
 
-// Helper pour construire les URLs en préservant les autres params (filter, status, category, q)
-$buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int $newPage = null, ?int $newCategory = null) use ($filter, $status, $category, $search) {
+// Helper pour construire les URLs en préservant les autres params (filter, status, catalog, category, q)
+$buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int $newPage = null, ?int $newCategory = null, ?string $newCatalog = null) use ($filter, $status, $catalog, $category, $search) {
     $q = [
         'filter' => $newFilter ?? $filter,
         'status' => $newStatus ?? $status,
     ];
+    $cat = $newCatalog ?? $catalog;
+    if ($cat !== 'all' && $cat !== '') $q['catalog'] = $cat;
     $catVal = $newCategory ?? $category;
     if ($catVal > 0) $q['category'] = $catVal;
     if ($newPage !== null) $q['page'] = $newPage;
@@ -144,6 +147,23 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
         <a href="<?= Renderer::escape($buildUrl(newStatus: 'inactive')) ?>"
            class="filter-pill <?= $status === 'inactive' ? 'filter-pill--active' : '' ?>">
             ○ Inactifs (<?= $stats['inactive'] ?>)
+        </a>
+
+        <span style="border-left:1px solid var(--color-border); margin: 0 4px;"></span>
+
+        <a href="<?= Renderer::escape($buildUrl(newCatalog: 'all')) ?>"
+           class="filter-pill <?= $catalog === 'all' ? 'filter-pill--active' : '' ?>">
+            Tous catalogue
+        </a>
+        <a href="<?= Renderer::escape($buildUrl(newCatalog: 'in')) ?>"
+           class="filter-pill <?= $catalog === 'in' ? 'filter-pill--active' : '' ?>"
+           title="Produits liés à au moins un SKU du catalogue Nutriweb">
+            ✓ Présent catalogue (<?= (int) ($stats['catalog_in'] ?? 0) ?>)
+        </a>
+        <a href="<?= Renderer::escape($buildUrl(newCatalog: 'out')) ?>"
+           class="filter-pill <?= $catalog === 'out' ? 'filter-pill--active' : '' ?>"
+           title="Produits non liés au catalogue Nutriweb">
+            ✕ Absent catalogue (<?= (int) ($stats['catalog_out'] ?? 0) ?>)
         </a>
     </div>
 

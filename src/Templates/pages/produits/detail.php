@@ -136,13 +136,21 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
 <section class="prod-tab" data-tab="declinaisons" hidden>
 <?php if (!empty($combinations)): ?>
     <div class="card" style="margin-bottom: 20px;">
-        <div class="card__header" style="display:flex; justify-content:space-between; align-items:center;">
-            <h3 class="card__title">
+        <div class="card__header" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+            <h3 class="card__title" style="margin:0;">
                 Déclinaisons
                 <span style="font-size:12px; color:var(--color-text-muted); font-weight:400; margin-left:6px;">
                     (<?= count($combinations) ?>)
                 </span>
             </h3>
+            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/sync-mapping" style="margin:0;"
+                  onsubmit="return confirm('Pousser les champs mappés (Paramètres → Mapping) vers TOUTES les déclinaisons de ce produit ?\n\nSeuls les mappings custom.* sont écrits en v1 (module aw_customproductfield).');">
+                <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                <button type="submit" class="btn btn--primary btn--sm"
+                        title="Sync mapping pour toutes les déclinaisons de ce produit en une fois">
+                    🔀 Synchroniser toutes les déclinaisons
+                </button>
+            </form>
         </div>
         <div class="card__body" style="padding:0;">
             <div style="overflow-x:auto;">
