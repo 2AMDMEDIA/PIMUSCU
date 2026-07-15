@@ -104,9 +104,10 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
             <?php endforeach; ?>
         </select>
 
-        <!-- Conserve les autres filtres en cours -->
+        <!-- Conserve les autres filtres en cours (le form GET n'envoie que ses inputs). -->
         <input type="hidden" name="filter" value="<?= Renderer::escape($filter) ?>">
         <input type="hidden" name="status" value="<?= Renderer::escape($status) ?>">
+        <input type="hidden" name="catalog" value="<?= Renderer::escape($catalog) ?>">
 
         <button type="submit" class="btn btn--secondary btn--sm">Rechercher</button>
         <?php if ($search !== '' || $category > 0): ?>
