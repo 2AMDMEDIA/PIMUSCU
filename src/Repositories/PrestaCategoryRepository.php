@@ -25,6 +25,68 @@ final class PrestaCategoryRepository
         return $stmt->fetchAll();
     }
 
+    /**
+     * Retourne les catégories du client sous forme d'arbre aplati indenté
+     * (même shape que PrestaShopClient::fetchCategoriesFlat()). Instantané :
+     * lit uniquement le cache local presta_categories (rafraîchi par
+     * Catégories → Synchroniser).
+     *
+     * @return list<array{id:int, parent_id:int, name:string, depth:int, indented_name:string}>
+     */
+    public function listFlatForClient(string $clientId): array
+    {
+        $stmt = $this->pdo()->prepare(
+            'SELECT presta_id AS id, parent_id, name FROM presta_categories
+              WHERE client_id = :client_id
+              ORDER BY parent_id ASC, name ASC'
+        );
+        $stmt->execute([':client_id' => $clientId]);
+        $rows = $stmt->fetchAll();
+        if ($rows === []) return [];
+
+        // Reconstruit l'arbre à partir des parent_id.
+        $byId = [];
+        foreach ($rows as $r) {
+            $byId[(int) $r['id']] = [
+                'id' => (int) $r['id'],
+                'parent_id' => (int) ($r['parent_id'] ?? 0),
+                'name' => trim((string) ($r['name'] ?? '')),
+                'children' => [],
+            ];
+        }
+        $roots = [];
+        foreach ($byId as $id => &$node) {
+            $pid = $node['parent_id'];
+            if ($pid > 0 && isset($byId[$pid])) {
+                $byId[$pid]['children'][] = &$node;
+            } else {
+                $roots[] = &$node;
+            }
+        }
+        unset($node);
+
+        $result = [];
+        $walk = function (array &$node, int $depth) use (&$walk, &$result): void {
+            $indent = str_repeat('— ', $depth);
+            $result[] = [
+                'id' => $node['id'],
+                'parent_id' => $node['parent_id'],
+                'name' => $node['name'],
+                'depth' => $depth,
+                'indented_name' => $indent . $node['name'],
+            ];
+            usort($node['children'], fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+            foreach ($node['children'] as &$child) {
+                $walk($child, $depth + 1);
+            }
+        };
+        usort($roots, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+        foreach ($roots as &$root) {
+            $walk($root, 0);
+        }
+        return $result;
+    }
+
     public function countForClient(string $clientId): int
     {
         $stmt = $this->pdo()->prepare('SELECT COUNT(*) FROM presta_categories WHERE client_id = :client_id');

@@ -13,6 +13,7 @@ use App\Repositories\ClientEditorialRepository;
 use App\Repositories\ClientFieldInstructionsRepository;
 use App\Repositories\ClientNutriwebSettingsRepository;
 use App\Repositories\ClientRepository;
+use App\Repositories\PrestaCategoryRepository;
 use App\Repositories\PasswordTokenRepository;
 use App\Repositories\UserClientRepository;
 use App\Repositories\UserRepository;
@@ -165,40 +166,12 @@ final class SettingsController extends BaseController
             $data['has_reviews_api_key'] = $client->prestashopReviewsApiKeyEncrypted !== null;
             $data['has_aw_cpf_api_key'] = $client->awCpfApiKeyEncrypted !== null;
             // Liste des catégories Presta (pour le sélecteur "catégories à ignorer").
-            // Best-effort : si l'API plante ou pas de clé, on n'affiche pas le sélecteur.
-            // Cache en session (10 min) pour éviter de re-payer l'appel long au
-            // rechargement de la page. Force rafraîchissement avec ?refresh_cats=1.
-            $categoriesFlat = [];
-            $categoriesError = null;
-            $categoriesFromCache = false;
-            if ($client->prestashopApiKeyEncrypted !== null) {
-                $cacheKey = 'settings_categories_flat_' . $client->id;
-                $cache = Session::get($cacheKey);
-                $forceRefresh = $this->input('refresh_cats') === '1';
-                if (!$forceRefresh && is_array($cache)
-                    && isset($cache['at'], $cache['data'])
-                    && (time() - (int) $cache['at']) < 600
-                ) {
-                    $categoriesFlat = $cache['data'];
-                    $categoriesFromCache = true;
-                } else {
-                    try {
-                        $categoriesFlat = (new PrestaShopClient($client))->fetchCategoriesFlat();
-                        Session::set($cacheKey, ['at' => time(), 'data' => $categoriesFlat]);
-                    } catch (\Throwable $e) {
-                        $categoriesError = $e->getMessage();
-                        // En cas d'erreur, on tombe sur l'ancien cache si dispo (même expiré)
-                        // pour ne pas casser l'UI si le shop est momentanément down.
-                        if (is_array($cache) && isset($cache['data'])) {
-                            $categoriesFlat = $cache['data'];
-                            $categoriesFromCache = true;
-                        }
-                    }
-                }
-            }
+            // Lue depuis le CACHE LOCAL presta_categories (rafraîchi par
+            // Catégories → Synchroniser) → instantané, aucun appel API.
+            $categoriesFlat = (new PrestaCategoryRepository())->listFlatForClient($client->id);
             $data['categories_flat'] = $categoriesFlat;
-            $data['categories_error'] = $categoriesError;
-            $data['categories_from_cache'] = $categoriesFromCache;
+            $data['categories_error'] = null;
+            $data['categories_from_cache'] = false;
             $data['ignored_category_ids'] = $client->ignoredCategoryIds ?? [];
         }
 
