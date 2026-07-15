@@ -176,8 +176,8 @@ final class AwCpfClient
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $json,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 60,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_TIMEOUT => 120,
             CURLOPT_HTTPHEADER => [
                 'Accept: application/json',
                 'Content-Type: application/json; charset=utf-8',
@@ -222,8 +222,8 @@ final class AwCpfClient
         $options = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_TIMEOUT => 60,
             CURLOPT_HTTPHEADER => [
                 'Accept: application/json',
                 'X-API-Key: ' . $this->apiKey(),

@@ -196,8 +196,32 @@ final class SettingsController extends BaseController
             $customRaw = '';
             $aw = new AwCpfClient($client);
             if ($aw->isConfigured()) {
-                try {
-                    $schema = $aw->fetchSchema();
+                // Cache session 10 min du schema (evite de re-appeler le module a
+                // chaque chargement de l'onglet). Force refresh : ?refresh_schema=1
+                $cacheKey = 'awcpf_schema_' . $client->id;
+                $cache = Session::get($cacheKey);
+                $forceRefresh = $this->input('refresh_schema') === '1';
+                $schema = null;
+                if (!$forceRefresh && is_array($cache)
+                    && isset($cache['at'], $cache['data'])
+                    && (time() - (int) $cache['at']) < 600
+                ) {
+                    $schema = $cache['data'];
+                } else {
+                    try {
+                        $schema = $aw->fetchSchema();
+                        Session::set($cacheKey, ['at' => time(), 'data' => $schema]);
+                    } catch (\Throwable $e) {
+                        $customError = $e->getMessage();
+                        // Fallback sur ancien cache si dispo (meme expire)
+                        if (is_array($cache) && isset($cache['data'])) {
+                            $schema = $cache['data'];
+                        }
+                    }
+                    $customUrl = $aw->getLastCalledUrl();
+                    $customRaw = $aw->getLastRawBody();
+                }
+                if (is_array($schema)) {
                     foreach ($schema as $f) {
                         if (empty($f['enabled'])) continue;
                         $label = $f['label'] !== '' ? $f['label'] : $f['key'];
@@ -206,11 +230,7 @@ final class SettingsController extends BaseController
                             'label' => $label . ' (' . $f['type'] . ($f['lang'] ? ', lang' : '') . ')',
                         ];
                     }
-                } catch (\Throwable $e) {
-                    $customError = $e->getMessage();
                 }
-                $customUrl = $aw->getLastCalledUrl();
-                $customRaw = $aw->getLastRawBody();
             } else {
                 $customError = 'Clé API aw_customproductfield non configurée (Paramètres → PrestaShop).';
             }
