@@ -5,9 +5,11 @@ use App\Helpers\Renderer;
  * @var string $shop_url
  * @var bool $has_api_key
  * @var bool $has_aw_key
+ * @var ?string $public_ip
  * @var list<array{label:string, url:string, http_code:int, error:?string,
  *   dns_ms:float, connect_ms:float, tls_ms:float, total_ms:float, body_size:int, body_snippet:string}> $results
  */
+$public_ip = $public_ip ?? null;
 $fmtMs = fn(float $ms): string => number_format($ms, 1, ',', ' ') . ' ms';
 ?>
 <div class="page-fullwidth">
@@ -24,6 +26,23 @@ $fmtMs = fn(float $ms): string => number_format($ms, 1, ',', ' ') . ' ms';
     </div>
     <a href="/settings/prestashop/curl-test" class="btn btn--secondary btn--sm" style="margin-left:auto;" title="Relancer les tests">🔄 Relancer</a>
 </div>
+
+<?php if ($public_ip !== null): ?>
+    <div style="margin-bottom:16px; padding:12px 14px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:var(--radius); font-size:13px;">
+        <strong>🌐 IP publique du serveur PIM :</strong>
+        <code style="font-size:14px; background:#fff; padding:2px 8px; border-radius:4px; margin-left:6px;"><?= Renderer::escape($public_ip) ?></code>
+        <div style="margin-top:6px; color:var(--color-text-muted); font-size:12px;">
+            C'est l'IP que ta boutique PrestaShop voit lorsqu'on l'appelle depuis ici.
+            Si tu suspectes un blacklist / firewall côté musculation.com (Cloudflare, ModSecurity,
+            filtre IP dans l'admin), demande à l'admin de <strong>whitelister cette IP</strong>.
+        </div>
+    </div>
+<?php else: ?>
+    <div style="margin-bottom:16px; padding:10px 12px; background:#fef3c7; border:1px solid #fcd34d; border-radius:var(--radius); font-size:12px;">
+        ⚠ Impossible de récupérer l'IP publique du serveur PIM (les services ipify/ifconfig sont eux aussi injoignables).
+        Le serveur a probablement une connectivité réseau très limitée / firewall sortant strict.
+    </div>
+<?php endif; ?>
 
 <div class="card">
     <div class="card__body" style="padding:0;">

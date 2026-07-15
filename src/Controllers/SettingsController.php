@@ -391,11 +391,32 @@ final class SettingsController extends BaseController
             $results[] = $this->runCurlProbe($probe['label'], $probe['url'], $probe['headers']);
         }
 
+        // Récupère l'IP publique du serveur PIM (utile pour demander un whitelist).
+        // Best-effort : plusieurs services testés, on prend le premier qui répond.
+        $publicIp = null;
+        foreach (['https://api.ipify.org', 'https://ifconfig.me/ip', 'https://icanhazip.com'] as $ipUrl) {
+            $ch = curl_init($ipUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT => 8,
+                CURLOPT_USERAGENT => 'PIM-Musculation-Diag/0.1',
+            ]);
+            $ip = curl_exec($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            if ($ip !== false && $code === 200) {
+                $publicIp = trim((string) $ip);
+                if ($publicIp !== '') break;
+            }
+        }
+
         $this->renderApp('pages.settings.curl_test', [
             'shop_url' => $shopUrl,
             'has_api_key' => $apiKey !== null,
             'has_aw_key' => $awKey !== null,
             'results' => $results,
+            'public_ip' => $publicIp,
         ], [
             'active' => 'settings',
             'page_title' => 'Diagnostic cURL',
