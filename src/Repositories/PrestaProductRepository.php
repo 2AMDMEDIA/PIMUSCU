@@ -425,7 +425,8 @@ final class PrestaProductRepository
         $stmt = $this->pdo()->prepare(
             'UPDATE presta_products
                 SET promo_reduction_type = NULL, promo_reduction = NULL,
-                    promo_from = NULL, promo_to = NULL
+                    promo_from = NULL, promo_to = NULL,
+                    active_promos_json = NULL
               WHERE client_id = :client_id'
         );
         $stmt->execute([':client_id' => $clientId]);
@@ -441,11 +442,13 @@ final class PrestaProductRepository
     public function applyActivePromos(string $clientId, array $specificPrices): int
     {
         $now = date('Y-m-d H:i:s');
-        $sql = 'UPDATE presta_products
-                   SET promo_reduction_type = :type, promo_reduction = :reduction,
-                       promo_from = :from, promo_to = :to
-                 WHERE client_id = :client_id AND presta_id = :presta_id';
-        $stmt = $this->pdo()->prepare($sql);
+        $sqlCols = 'UPDATE presta_products
+                       SET promo_reduction_type = :type, promo_reduction = :reduction,
+                           promo_from = :from, promo_to = :to
+                     WHERE client_id = :client_id AND presta_id = :presta_id';
+        $stmtCols = $this->pdo()->prepare($sqlCols);
+        // Groupé par produit pour l'active_promos_json (une seule UPDATE par produit)
+        $byProduct = [];
         $count = 0;
         foreach ($specificPrices as $sp) {
             $type = (string) ($sp['reduction_type'] ?? '');
@@ -459,7 +462,8 @@ final class PrestaProductRepository
             $fromOk = ($from === '' || $from === '0000-00-00 00:00:00' || $from <= $now);
             $toOk   = ($to === '' || $to === '0000-00-00 00:00:00' || $to >= $now);
             if (!$fromOk || !$toOk) continue;
-            $stmt->execute([
+
+            $stmtCols->execute([
                 ':type' => $type,
                 ':reduction' => $reduction,
                 ':from' => ($from !== '' && $from !== '0000-00-00 00:00:00') ? $from : null,
@@ -467,9 +471,70 @@ final class PrestaProductRepository
                 ':client_id' => $clientId,
                 ':presta_id' => $prestaId,
             ]);
+            // Accumule la promo (raw) pour l'active_promos_json — même shape que
+            // ce que listSpecificPricesForProduct retourne, pour rester compatible
+            // avec le template detail.php.
+            $byProduct[$prestaId][] = [
+                'id' => (int) ($sp['id'] ?? 0),
+                'reduction' => $reduction,
+                'reduction_type' => $type,
+                'reduction_tax' => (int) ($sp['reduction_tax'] ?? 1),
+                'from' => $from,
+                'to' => $to,
+                'price' => (float) ($sp['price'] ?? -1),
+            ];
             $count++;
         }
+
+        // Update active_promos_json par produit (une requete par produit, mais on
+        // n'update que ceux qui ont une promo active -> minimal).
+        if ($byProduct !== []) {
+            $stmtJson = $this->pdo()->prepare(
+                'UPDATE presta_products SET active_promos_json = :json
+                  WHERE client_id = :client_id AND presta_id = :presta_id'
+            );
+            foreach ($byProduct as $prestaId => $promos) {
+                $stmtJson->execute([
+                    ':json' => json_encode(array_values($promos), JSON_UNESCAPED_UNICODE),
+                    ':client_id' => $clientId,
+                    ':presta_id' => $prestaId,
+                ]);
+            }
+        }
+
         return $count;
+    }
+
+    /**
+     * Enregistre la liste des id_image d'un produit (CSV) pour affichage instantané
+     * dans la fiche produit sans appel Presta live.
+     * NULL = a re-fetcher a la prochaine ouverture de fiche.
+     */
+    public function saveImageIds(string $clientId, int $prestaId, ?array $imageIds): void
+    {
+        $csv = $imageIds !== null ? implode(',', array_map('intval', $imageIds)) : null;
+        $stmt = $this->pdo()->prepare(
+            'UPDATE presta_products SET image_ids = :ids
+              WHERE client_id = :client_id AND presta_id = :presta_id'
+        );
+        $stmt->execute([
+            ':ids' => $csv,
+            ':client_id' => $clientId,
+            ':presta_id' => $prestaId,
+        ]);
+    }
+
+    /**
+     * Invalide (NULL) l'active_promos_json d'un produit pour forcer un re-fetch
+     * ou vidage apres suppression manuelle des promos.
+     */
+    public function clearActivePromosJson(string $clientId, int $prestaId): void
+    {
+        $stmt = $this->pdo()->prepare(
+            'UPDATE presta_products SET active_promos_json = NULL
+              WHERE client_id = :client_id AND presta_id = :presta_id'
+        );
+        $stmt->execute([':client_id' => $clientId, ':presta_id' => $prestaId]);
     }
 
     public function saveOptimized(

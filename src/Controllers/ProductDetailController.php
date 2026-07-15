@@ -48,27 +48,42 @@ final class ProductDetailController extends BaseController
         $linkRewrite = (string) ($row['link_rewrite'] ?? '');
         $externalUrl = $linkRewrite !== '' ? $shopUrl . '/' . $row['presta_id'] . '-' . $linkRewrite . '.html' : null;
 
-        // Galerie + promos actives : best-effort, échoue silencieusement si l'API Presta plante.
-        $galleryImages = [];
+        // Promos actives : lues depuis la colonne active_promos_json (peuplée au
+        // sync produits via applyActivePromos). Aucun appel API live.
         $activePromos = [];
-        if ($client->prestashopApiKeyEncrypted !== null) {
+        if (!empty($row['active_promos_json'])) {
+            $decoded = json_decode((string) $row['active_promos_json'], true);
+            if (is_array($decoded)) $activePromos = $decoded;
+        }
+
+        // Galerie : lue depuis la colonne image_ids (CSV persistante). Cache lazy :
+        // si NULL et clé API dispo → fetch live UNE fois + save en DB → instant après.
+        // Force refresh : ?refresh=1 dans l'URL.
+        $galleryImages = [];
+        $prestaProductId = (int) $row['presta_id'];
+        $forceRefresh = $this->input('refresh') === '1';
+        $imageIdsCsv = $forceRefresh ? null : ($row['image_ids'] ?? null);
+        $imageIds = null;
+        if ($imageIdsCsv !== null && $imageIdsCsv !== '') {
+            $imageIds = array_values(array_filter(array_map('intval', explode(',', (string) $imageIdsCsv)), fn($i) => $i > 0));
+        } elseif ($client->prestashopApiKeyEncrypted !== null) {
+            // Premier chargement (ou refresh forcé) : fetch + persist.
             try {
                 $service = new PrestaShopClient($client);
-                $imageIds = $service->fetchProductImageIds((int) $row['presta_id']);
-                foreach ($imageIds as $imageId) {
-                    $galleryImages[] = [
-                        'id' => $imageId,
-                        'thumb_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'medium_default'),
-                        'large_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'large_default'),
-                    ];
-                }
+                $imageIds = $service->fetchProductImageIds($prestaProductId);
+                (new PrestaProductRepository())->saveImageIds($client->id, $prestaProductId, $imageIds);
             } catch (\Throwable) {
-                // Best-effort
+                $imageIds = null;
             }
-            try {
-                $activePromos = (new PrestaShopClient($client))->listSpecificPricesForProduct((int) $row['presta_id']);
-            } catch (\Throwable) {
-                // Best-effort
+        }
+        if ($imageIds !== null && $client->prestashopApiKeyEncrypted !== null) {
+            $service = new PrestaShopClient($client);
+            foreach ($imageIds as $imageId) {
+                $galleryImages[] = [
+                    'id' => $imageId,
+                    'thumb_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'medium_default'),
+                    'large_url' => $service->buildProductImageUrl($imageId, $linkRewrite, 'large_default'),
+                ];
             }
         }
 
@@ -421,6 +436,7 @@ final class ProductDetailController extends BaseController
         }
 
         $repo->markPushedToGallery($client->id, $generationId, $newImageId);
+        self::invalidateProductLiveCache($client->id, (int) $row['presta_id']);
 
         $this->json([
             'ok' => true,
@@ -538,6 +554,7 @@ final class ProductDetailController extends BaseController
         $label = $reductionType === 'amount'
             ? '-' . number_format((float) $reductionValue, 2, ',', ' ') . ' € TTC'
             : '-' . number_format((float) $reductionValue * 100, 1, ',', ' ') . ' %';
+        self::invalidateProductLiveCache($client->id, (int) $row['presta_id']);
         $this->flashSuccess('Promo flash créée ' . $label . ' du ' . date('d/m/Y', $tsFrom) . ' au ' . date('d/m/Y', $tsTo) . '.');
         $this->redirect('/produits/' . $id);
     }
@@ -566,6 +583,7 @@ final class ProductDetailController extends BaseController
             foreach ($existing as $promo) {
                 $service->deleteSpecificPrice($promo['id']);
             }
+            self::invalidateProductLiveCache($client->id, (int) $row['presta_id']);
             $this->flashSuccess(count($existing) . ' promo(s) supprimée(s).');
         } catch (\Throwable $e) {
             $this->flashError('Échec suppression : ' . $e->getMessage());
@@ -801,6 +819,20 @@ final class ProductDetailController extends BaseController
             'errors' => $report['errors'],
             'message' => $report['updated'] . ' image' . ($report['updated'] > 1 ? 's' : '') . ' réordonnée' . ($report['updated'] > 1 ? 's' : '') . '.',
         ]);
+    }
+
+    /**
+     * Invalide le cache DB galerie/promos pour un produit donné.
+     * À appeler après toute mutation côté PS (add image, create/delete promo).
+     * Les données seront re-fetchées au prochain chargement de la fiche.
+     */
+    private static function invalidateProductLiveCache(string $clientId, int $prestaProductId): void
+    {
+        $repo = new PrestaProductRepository();
+        // Nulls image_ids -> re-fetch au prochain show()
+        $repo->saveImageIds($clientId, $prestaProductId, null);
+        // Nulls active_promos_json -> vidé au prochain show() (jusqu'au prochain sync)
+        $repo->clearActivePromosJson($clientId, $prestaProductId);
     }
 
     private function emptyToNull(?string $value): ?string
