@@ -48,36 +48,20 @@ final class ProductDetailController extends BaseController
         $linkRewrite = (string) ($row['link_rewrite'] ?? '');
         $externalUrl = $linkRewrite !== '' ? $shopUrl . '/' . $row['presta_id'] . '-' . $linkRewrite . '.html' : null;
 
-        // Promos actives : lues depuis la colonne active_promos_json (peuplée au
-        // sync produits via applyActivePromos). Aucun appel API live.
+        // Promos actives et galerie : lues UNIQUEMENT depuis la DB (peuplees au sync
+        // Produits -> Synchroniser ou via le bouton "Mettre a jour" de la fiche).
+        // Aucun appel PrestaShop live sur show() -> instantane.
         $activePromos = [];
         if (!empty($row['active_promos_json'])) {
             $decoded = json_decode((string) $row['active_promos_json'], true);
             if (is_array($decoded)) $activePromos = $decoded;
         }
 
-        // Galerie : lue depuis la colonne image_ids (CSV persistante). Cache lazy :
-        // si NULL et clé API dispo → fetch live UNE fois + save en DB → instant après.
-        // Force refresh : ?refresh=1 dans l'URL.
         $galleryImages = [];
-        $prestaProductId = (int) $row['presta_id'];
-        $forceRefresh = $this->input('refresh') === '1';
-        $imageIdsCsv = $forceRefresh ? null : ($row['image_ids'] ?? null);
-        $imageIds = null;
-        if ($imageIdsCsv !== null && $imageIdsCsv !== '') {
-            $imageIds = array_values(array_filter(array_map('intval', explode(',', (string) $imageIdsCsv)), fn($i) => $i > 0));
-        } elseif ($client->prestashopApiKeyEncrypted !== null) {
-            // Premier chargement (ou refresh forcé) : fetch + persist.
-            try {
-                $service = new PrestaShopClient($client);
-                $imageIds = $service->fetchProductImageIds($prestaProductId);
-                (new PrestaProductRepository())->saveImageIds($client->id, $prestaProductId, $imageIds);
-            } catch (\Throwable) {
-                $imageIds = null;
-            }
-        }
-        if ($imageIds !== null && $client->prestashopApiKeyEncrypted !== null) {
+        $imageIdsCsv = (string) ($row['image_ids'] ?? '');
+        if ($imageIdsCsv !== '' && $client->prestashopApiKeyEncrypted !== null) {
             $service = new PrestaShopClient($client);
+            $imageIds = array_values(array_filter(array_map('intval', explode(',', $imageIdsCsv)), fn($i) => $i > 0));
             foreach ($imageIds as $imageId) {
                 $galleryImages[] = [
                     'id' => $imageId,
@@ -819,6 +803,88 @@ final class ProductDetailController extends BaseController
             'errors' => $report['errors'],
             'message' => $report['updated'] . ' image' . ($report['updated'] > 1 ? 's' : '') . ' réordonnée' . ($report['updated'] > 1 ? 's' : '') . '.',
         ]);
+    }
+
+    /**
+     * POST /produits/{id}/refresh — re-fetch depuis PrestaShop les données de CE
+     * produit uniquement (données produit + galerie images + promos actives) et
+     * met à jour le cache local. Utile après une modif dans PS admin sans
+     * relancer un sync complet du catalogue.
+     */
+    public function refreshProduct(string $id): void
+    {
+        Auth::require();
+        Csrf::enforce($this->input('_csrf'));
+
+        $client = (new ClientResolver())->resolveCurrent();
+        if ($client === null) {
+            $this->redirect('/dashboard');
+        }
+        $repo = new PrestaProductRepository();
+        $row = $repo->findById($client->id, $id);
+        if ($row === null) {
+            $this->flashError('Produit introuvable.');
+            $this->redirect('/produits');
+        }
+        $back = '/produits/' . urlencode((string) $row['id']);
+
+        if ($client->prestashopApiKeyEncrypted === null) {
+            $this->flashError('Clé API PrestaShop non configurée.');
+            $this->redirect($back);
+        }
+
+        $prestaProductId = (int) $row['presta_id'];
+        $service = new PrestaShopClient($client);
+        $done = [];
+        $errors = [];
+
+        // 1) Données produit (name, description, prix, meta, image cover…) via
+        //    fetchProductsBatch filtré par id → upsert.
+        try {
+            $batch = $service->fetchProductsBatch(0, 1, $prestaProductId);
+            if ($batch !== []) {
+                $repo->upsertBatch($client->id, $batch);
+                $done[] = 'données produit';
+            } else {
+                $errors[] = 'produit non trouvé côté PrestaShop';
+            }
+        } catch (\Throwable $e) {
+            $errors[] = 'données produit : ' . $e->getMessage();
+        }
+
+        // 2) Galerie : re-fetch les image_ids et persiste.
+        try {
+            $imageIds = $service->fetchProductImageIds($prestaProductId);
+            $repo->saveImageIds($client->id, $prestaProductId, $imageIds);
+            $done[] = count($imageIds) . ' image(s)';
+        } catch (\Throwable $e) {
+            $errors[] = 'images : ' . $e->getMessage();
+        }
+
+        // 3) Promos actives : bulk fetch + filter sur ce produit + save (colonnes + JSON).
+        try {
+            $all = $service->listSpecificPricesForProduct($prestaProductId);
+            // Purge d'abord ce qu'on avait
+            $repo->clearActivePromosJson($client->id, $prestaProductId);
+            // Reconstruit les colonnes/JSON via applyActivePromos filtrées à ce produit
+            $filtered = array_values(array_filter($all, fn($sp) => (int) ($sp['id_product'] ?? 0) === $prestaProductId));
+            // Ajoute id_product (listSpecificPricesForProduct ne le remet pas forcement)
+            foreach ($filtered as &$sp) $sp['id_product'] = $prestaProductId;
+            unset($sp);
+            // Ecrit les colonnes promo_* ET l'active_promos_json pour ce produit
+            $repo->applyActivePromos($client->id, $filtered);
+            $done[] = count($filtered) . ' promo(s)';
+        } catch (\Throwable $e) {
+            $errors[] = 'promos : ' . $e->getMessage();
+        }
+
+        $msg = 'Produit rafraîchi : ' . (empty($done) ? '(rien)' : implode(', ', $done)) . '.';
+        if ($errors !== []) {
+            $this->flashError($msg . ' Erreurs : ' . implode(' | ', $errors));
+        } else {
+            $this->flashSuccess($msg);
+        }
+        $this->redirect($back);
     }
 
     /**

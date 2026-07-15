@@ -80,6 +80,7 @@ return [
     ['GET',  '/produits', [ProductsController::class, 'index'], true],
     ['POST', '/produits/sync', [ProductsController::class, 'sync'], true],
     ['GET',  '/produits/{id}', [ProductDetailController::class, 'show'], true],
+    ['POST', '/produits/{id}/refresh', [ProductDetailController::class, 'refreshProduct'], true],
     ['POST', '/produits/{id}/save', [ProductDetailController::class, 'saveOptimized'], true],
     ['POST', '/produits/{id}/push', [ProductDetailController::class, 'push'], true],
     ['POST', '/produits/{id}/sync-mapping', [ProductDetailController::class, 'syncMapping'], true],

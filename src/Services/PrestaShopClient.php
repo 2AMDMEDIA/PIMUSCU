@@ -198,15 +198,19 @@ final class PrestaShopClient
      *     has_cms_content:bool, has_description:bool, image_url:?string,
      * }>
      */
-    public function fetchProductsBatch(int $offset, int $limit): array
+    public function fetchProductsBatch(int $offset, int $limit, ?int $filterId = null): array
     {
         $display = '[id,reference,name,manufacturer_name,price,wholesale_price,active,description,description_short,'
             . 'meta_title,meta_description,meta_keywords,link_rewrite,id_default_image,id_category_default]';
-        $body = $this->get('/api/products', [
+        $query = [
             'display' => $display,
             'filter[active]' => '[0,1]',
             'limit' => $offset . ',' . $limit,
-        ], asJson: true);
+        ];
+        if ($filterId !== null && $filterId > 0) {
+            $query['filter[id]'] = (string) $filterId;
+        }
+        $body = $this->get('/api/products', $query, asJson: true);
 
         $rows = $this->decodeJsonOrXml($body, 'products', 'product');
         // Libère le buffer source avant le mapping (économise la mémoire pic).

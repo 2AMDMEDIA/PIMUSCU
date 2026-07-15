@@ -200,6 +200,28 @@ final class ProductsController extends BaseController
                 error_log('Sync promos failed: ' . $e->getMessage());
             }
 
+            // Sync des image_ids par produit (une seule requete par produit, best-effort).
+            // On ne re-fetche QUE les produits sans image_ids (nouveaux ou reset). Les
+            // produits existants sont skip pour ne pas exploser la duree du sync.
+            // Le bouton "Mettre a jour" sur la fiche produit permet de forcer le refresh
+            // d'un produit specifique.
+            $imagesCount = 0;
+            try {
+                $missing = $repo->listPrestaIdsMissingImages($client->id);
+                foreach ($missing as $prestaId) {
+                    try {
+                        $ids = $service->fetchProductImageIds($prestaId);
+                        $repo->saveImageIds($client->id, $prestaId, $ids);
+                        $imagesCount++;
+                    } catch (\Throwable $e) {
+                        // Best-effort par produit ; on continue.
+                        error_log('Sync images pour produit ' . $prestaId . ' : ' . $e->getMessage());
+                    }
+                }
+            } catch (\Throwable $e) {
+                error_log('Sync images failed: ' . $e->getMessage());
+            }
+
             // Sync des stats avis (best-effort) : appel à api_reviews.php → stockage en DB.
             $reviewsCount = 0;
             $reviewsService = new ReviewsClient($client);
@@ -218,6 +240,9 @@ final class ProductsController extends BaseController
             }
             if ($promoCount > 0) {
                 $msg .= ' ' . $promoCount . ' promo' . ($promoCount > 1 ? 's' : '') . ' active' . ($promoCount > 1 ? 's' : '') . '.';
+            }
+            if ($imagesCount > 0) {
+                $msg .= ' Images fetchées pour ' . $imagesCount . ' nouveau' . ($imagesCount > 1 ? 'x' : '') . ' produit' . ($imagesCount > 1 ? 's' : '') . '.';
             }
             if ($combinationCount > 0) {
                 $msg .= ' ' . $combinationCount . ' déclinaison' . ($combinationCount > 1 ? 's' : '') . '.';

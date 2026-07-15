@@ -65,7 +65,12 @@ $optMetaKw = (string) ($row['optimized_meta_keywords'] ?? '');
             <?php if ($hasCmsContent): ?>
                 <span class="badge badge--purple">◆ Contenu CMS</span>
             <?php endif; ?>
-            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/sync-mapping" style="margin:0 0 0 auto;"
+            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/refresh" style="margin:0 0 0 auto;"
+                  title="Re-fetch les données de CE produit depuis PrestaShop (données produit + galerie + promos)">
+                <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
+                <button type="submit" class="btn btn--secondary btn--sm">🔃 Mettre à jour</button>
+            </form>
+            <form method="POST" action="/produits/<?= Renderer::escape($row['id']) ?>/sync-mapping" style="margin:0;"
                   onsubmit="return confirm('Pousser les champs mappés (Paramètres → Mapping) vers les SKUs de ce produit ?\n\nSeuls les mappings custom.* sont écrits en v1 (module aw_customproductfield).');">
                 <input type="hidden" name="_csrf" value="<?= Renderer::escape($csrf_token) ?>">
                 <button type="submit" class="btn btn--secondary btn--sm" title="Pousse les champs mappés vers les SKUs matchés à ce produit (module aw_customproductfield)">

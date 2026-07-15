@@ -506,6 +506,21 @@ final class PrestaProductRepository
     }
 
     /**
+     * Retourne les presta_id des produits du client dont image_ids est NULL
+     * (jamais fetché). Sert au sync produits pour ne fetcher que ceux-là.
+     * @return list<int>
+     */
+    public function listPrestaIdsMissingImages(string $clientId): array
+    {
+        $stmt = $this->pdo()->prepare(
+            'SELECT presta_id FROM presta_products
+              WHERE client_id = :client_id AND (image_ids IS NULL OR image_ids = "")'
+        );
+        $stmt->execute([':client_id' => $clientId]);
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Enregistre la liste des id_image d'un produit (CSV) pour affichage instantané
      * dans la fiche produit sans appel Presta live.
      * NULL = a re-fetcher a la prochaine ouverture de fiche.
