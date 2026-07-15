@@ -339,6 +339,117 @@ final class SettingsController extends BaseController
     /**
      * Sert le fichier api_reviews.php avec la clé API du client pré-remplie.
      */
+    /**
+     * GET /settings/prestashop/curl-test — page de diagnostic réseau qui fait
+     * plusieurs cURL vers la boutique PrestaShop du client, chronomètre chaque
+     * étape (DNS, connect, TLS, transfer) et affiche les résultats. Sert à
+     * identifier où ça bloque quand on a des « Connection timeout after X ms ».
+     */
+    public function curlTest(): void
+    {
+        Auth::require();
+        $client = $this->requireClientOrRedirect();
+
+        $shopUrl = rtrim($client->prestashopUrl, '/');
+        $apiKey = $client->prestashopApiKeyEncrypted !== null
+            ? Encryption::decrypt($client->prestashopApiKeyEncrypted)
+            : null;
+        $awKey = $client->awCpfApiKeyEncrypted !== null
+            ? Encryption::decrypt($client->awCpfApiKeyEncrypted)
+            : null;
+
+        $probes = [
+            [
+                'label' => 'Homepage (GET /)',
+                'url' => $shopUrl . '/',
+                'headers' => [],
+            ],
+            [
+                'label' => 'PS Webservice API racine (GET /api/)',
+                'url' => $shopUrl . '/api/',
+                'headers' => $apiKey !== null ? ['Authorization: Basic ' . base64_encode($apiKey . ':')] : [],
+            ],
+            [
+                'label' => 'PS Webservice /api/products?limit=0,1',
+                'url' => $shopUrl . '/api/products?display=[id]&limit=0,1&output_format=JSON' . ($apiKey !== null ? '&ws_key=' . urlencode($apiKey) : ''),
+                'headers' => [],
+            ],
+            [
+                'label' => 'PS Webservice /api/specific_prices?limit=0,1',
+                'url' => $shopUrl . '/api/specific_prices?display=[id]&limit=0,1&output_format=JSON' . ($apiKey !== null ? '&ws_key=' . urlencode($apiKey) : ''),
+                'headers' => [],
+            ],
+            [
+                'label' => 'aw_customproductfield ?action=schema',
+                'url' => $shopUrl . '/modules/aw_customproductfield/api.php?action=schema',
+                'headers' => $awKey !== null ? ['X-API-Key: ' . $awKey] : [],
+            ],
+        ];
+
+        $results = [];
+        foreach ($probes as $probe) {
+            $results[] = $this->runCurlProbe($probe['label'], $probe['url'], $probe['headers']);
+        }
+
+        $this->renderApp('pages.settings.curl_test', [
+            'shop_url' => $shopUrl,
+            'has_api_key' => $apiKey !== null,
+            'has_aw_key' => $awKey !== null,
+            'results' => $results,
+        ], [
+            'active' => 'settings',
+            'page_title' => 'Diagnostic cURL',
+        ]);
+    }
+
+    /**
+     * @param list<string> $headers
+     * @return array{label:string, url:string, http_code:int, error:?string,
+     *   dns_ms:float, connect_ms:float, tls_ms:float, total_ms:float, body_size:int, body_snippet:string}
+     */
+    private function runCurlProbe(string $label, string $url, array $headers): array
+    {
+        $ch = curl_init($url);
+        $options = [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => 30,
+            CURLOPT_TIMEOUT => 45,
+            CURLOPT_HTTPHEADER => array_merge(['Accept: */*'], $headers),
+            CURLOPT_USERAGENT => 'PIM-Musculation-Diag/0.1',
+        ];
+        if (class_exists(\Composer\CaBundle\CaBundle::class)) {
+            $caPath = \Composer\CaBundle\CaBundle::getBundledCaBundlePath();
+            if (is_file($caPath)) $options[CURLOPT_CAINFO] = $caPath;
+        }
+        $tlsVerify = $_ENV['APP_TLS_VERIFY'] ?? 'true';
+        if (filter_var($tlsVerify, FILTER_VALIDATE_BOOLEAN) === false) {
+            $options[CURLOPT_SSL_VERIFYPEER] = false;
+            $options[CURLOPT_SSL_VERIFYHOST] = 0;
+        }
+        curl_setopt_array($ch, $options);
+        $body = curl_exec($ch);
+        $info = curl_getinfo($ch);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        // Mask ws_key in URL for display
+        $displayUrl = (string) preg_replace('/(ws_key=)([^&]+)/', '$1***', $url);
+
+        return [
+            'label' => $label,
+            'url' => $displayUrl,
+            'http_code' => (int) ($info['http_code'] ?? 0),
+            'error' => $error !== '' ? $error : null,
+            'dns_ms' => round(1000 * (float) ($info['namelookup_time'] ?? 0), 1),
+            'connect_ms' => round(1000 * ((float) ($info['connect_time'] ?? 0) - (float) ($info['namelookup_time'] ?? 0)), 1),
+            'tls_ms' => round(1000 * ((float) ($info['appconnect_time'] ?? 0) - (float) ($info['connect_time'] ?? 0)), 1),
+            'total_ms' => round(1000 * (float) ($info['total_time'] ?? 0), 1),
+            'body_size' => $body === false ? 0 : strlen((string) $body),
+            'body_snippet' => $body === false ? '' : mb_substr((string) $body, 0, 300),
+        ];
+    }
+
     public function downloadReviewsApiFile(): void
     {
         Auth::require();

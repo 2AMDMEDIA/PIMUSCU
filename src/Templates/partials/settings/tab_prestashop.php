@@ -166,6 +166,12 @@ use App\Helpers\Renderer;
 
             <div id="ps-test-result" class="ps-test-result" hidden></div>
 
+            <div style="margin-top:8px; font-size:12px; color:var(--color-text-muted);">
+                🩺 Timeouts ou erreurs réseau récurrentes ?
+                <a href="/settings/prestashop/curl-test" target="_blank" rel="noopener">Ouvrir le diagnostic cURL détaillé</a>
+                (DNS, connect, TLS, timings par endpoint).
+            </div>
+
             <div class="form-actions">
                 <button type="button" id="ps-test-btn" class="btn btn--secondary">
                     <span class="ps-test-btn__label">Tester la connexion</span>

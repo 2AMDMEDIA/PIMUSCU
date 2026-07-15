@@ -65,6 +65,7 @@ return [
     ['POST', '/settings/nutriweb', [SettingsController::class, 'saveNutriweb'], true],
     ['POST', '/settings/attributes', [SettingsController::class, 'saveAttributes'], true],
     ['POST', '/settings/mapping', [SettingsController::class, 'saveMapping'], true],
+    ['GET',  '/settings/prestashop/curl-test', [SettingsController::class, 'curlTest'], true],
     ['POST', '/settings/field-instructions', [SettingsController::class, 'saveFieldInstructions'], true],
 
     // Catégories
