@@ -6,10 +6,12 @@ use App\Helpers\Renderer;
  * @var bool $has_api_key
  * @var bool $has_aw_key
  * @var ?string $public_ip
+ * @var list<array{label:string, host:string, port:int, ok:bool, ms:float, error:?string}> $smoke_tests
  * @var list<array{label:string, url:string, http_code:int, error:?string,
  *   dns_ms:float, connect_ms:float, tls_ms:float, total_ms:float, body_size:int, body_snippet:string}> $results
  */
 $public_ip = $public_ip ?? null;
+$smoke_tests = $smoke_tests ?? [];
 $fmtMs = fn(float $ms): string => number_format($ms, 1, ',', ' ') . ' ms';
 ?>
 <div class="page-fullwidth">
@@ -44,7 +46,61 @@ $fmtMs = fn(float $ms): string => number_format($ms, 1, ',', ' ') . ' ms';
     </div>
 <?php endif; ?>
 
+<?php if (!empty($smoke_tests)): ?>
+<div class="card" style="margin-bottom:16px;">
+    <div class="card__header">
+        <h3 class="card__title" style="font-size:14px;">⚡ Smoke tests TCP (fsockopen, 5s max)</h3>
+    </div>
+    <div class="card__body" style="padding:0;">
+        <div style="overflow-x:auto;">
+            <table class="diag-table">
+                <thead>
+                    <tr>
+                        <th>Host</th>
+                        <th>Port</th>
+                        <th class="diag-table__num">Temps</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                <?php foreach ($smoke_tests as $t): ?>
+                    <tr>
+                        <td>
+                            <strong><?= Renderer::escape($t['label']) ?></strong>
+                            <div style="font-size:11px; color:var(--color-text-muted);"><code><?= Renderer::escape($t['host']) ?></code></div>
+                        </td>
+                        <td class="diag-table__num"><?= $t['port'] ?></td>
+                        <td class="diag-table__num" style="color:<?= $t['ok'] ? '#166534' : '#dc2626' ?>; font-weight:600;">
+                            <?= number_format($t['ms'], 1, ',', ' ') ?> ms
+                        </td>
+                        <td>
+                            <?php if ($t['ok']): ?>
+                                <span style="color:#166534; font-weight:600;">✓ TCP OK</span>
+                            <?php else: ?>
+                                <span style="color:#dc2626; font-weight:600;">✗ Bloqué</span>
+                                <span style="color:var(--color-text-muted); font-size:12px; margin-left:6px;"><?= Renderer::escape((string) $t['error']) ?></span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <div style="padding:10px 12px; font-size:12px; color:var(--color-text-muted); border-top:1px solid var(--color-border);">
+            <strong>Lecture rapide :</strong>
+            si Google/Cloudflare passent ✓ mais la boutique PS ✗ → l'IP du serveur PIM est <strong>filtrée par la boutique</strong>
+            (Cloudflare, .htaccess, module sécu). Whitelist l'IP ci-dessus.
+            Si les 3 échouent → le serveur PIM n'a pas d'accès Internet sortant (config hébergeur).
+            Si les 3 passent ✓ mais cURL ci-dessous échoue → filtre HTTP/HTTPS spécifique (User-Agent, TLS fingerprint).
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <div class="card">
+    <div class="card__header">
+        <h3 class="card__title" style="font-size:14px;">🔍 Probes cURL HTTP/HTTPS (10s connect, 15s total)</h3>
+    </div>
     <div class="card__body" style="padding:0;">
         <div style="overflow-x:auto;">
             <table class="diag-table">

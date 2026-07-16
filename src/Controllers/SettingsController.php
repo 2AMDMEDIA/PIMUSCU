@@ -389,6 +389,19 @@ final class SettingsController extends BaseController
             ],
         ];
 
+        // Smoke tests TCP (fsockopen, 5s max) : verifie si le serveur PIM peut
+        // ouvrir un socket TCP:443 sur des hosts cles. Beaucoup plus rapide que
+        // les probes cURL et permet d'identifier tout de suite un blocage reseau.
+        $shopHost = (string) (parse_url($shopUrl, PHP_URL_HOST) ?? 'www.musculation.com');
+        $smokeTests = [];
+        foreach ([
+            $shopHost => 'Boutique PS (' . $shopHost . ')',
+            'www.google.com' => 'Google (contrôle Internet OK)',
+            'www.cloudflare.com' => 'Cloudflare (contrôle CDN OK)',
+        ] as $host => $label) {
+            $smokeTests[] = $this->runTcpProbe($host, 443, $label);
+        }
+
         $results = [];
         foreach ($probes as $probe) {
             $results[] = $this->runCurlProbe($probe['label'], $probe['url'], $probe['headers']);
@@ -419,11 +432,40 @@ final class SettingsController extends BaseController
             'has_api_key' => $apiKey !== null,
             'has_aw_key' => $awKey !== null,
             'results' => $results,
+            'smoke_tests' => $smokeTests,
             'public_ip' => $publicIp,
         ], [
             'active' => 'settings',
             'page_title' => 'Diagnostic cURL',
         ]);
+    }
+
+    /**
+     * Smoke test TCP : essaie d'ouvrir une connexion TCP au host:port en 5s max.
+     * Renvoie le temps d'ouverture ou l'erreur. Utilise fsockopen -> tres rapide,
+     * pas de TLS, pas de HTTP, juste TCP handshake.
+     *
+     * @return array{label:string, host:string, port:int, ok:bool, ms:float, error:?string}
+     */
+    private function runTcpProbe(string $host, int $port, string $label): array
+    {
+        $start = microtime(true);
+        $errno = 0;
+        $errstr = '';
+        $fp = @fsockopen($host, $port, $errno, $errstr, 5);
+        $ms = round(1000 * (microtime(true) - $start), 1);
+        if ($fp === false) {
+            return [
+                'label' => $label,
+                'host' => $host,
+                'port' => $port,
+                'ok' => false,
+                'ms' => $ms,
+                'error' => $errstr !== '' ? $errstr : ('code ' . $errno),
+            ];
+        }
+        fclose($fp);
+        return ['label' => $label, 'host' => $host, 'port' => $port, 'ok' => true, 'ms' => $ms, 'error' => null];
     }
 
     /**
@@ -437,8 +479,10 @@ final class SettingsController extends BaseController
         $options = [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => 30,
-            CURLOPT_TIMEOUT => 45,
+            // Timeouts courts pour la page de diag : on veut savoir vite si ca
+            // repond ou pas, pas attendre 30s par probe. Total max : 5x15 = 75s.
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 15,
             CURLOPT_HTTPHEADER => array_merge(['Accept: */*'], $headers),
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation-Diag/0.1',
         ];
