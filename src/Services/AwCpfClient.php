@@ -46,7 +46,7 @@ final class AwCpfClient
     /**
      * Retourne la liste des champs personnalisés définis côté module.
      *
-     * @return list<array{key:string, label:string, type:string, lang?:bool, enabled?:bool}>
+     * @return list<array{key:string, label:string, type:string, lang?:bool, enabled?:bool, scope?:string}>
      */
     public function fetchSchema(): array
     {
@@ -69,12 +69,16 @@ final class AwCpfClient
             if (!is_array($it)) continue;
             $key = trim((string) ($it['key'] ?? $it['name'] ?? ''));
             if ($key === '') continue;
+            // scope : 'product' | 'combination' (défaut 'combination' pour retro-compat)
+            $scope = (string) ($it['scope'] ?? 'combination');
+            if (!in_array($scope, ['product', 'combination'], true)) $scope = 'combination';
             $out[] = [
                 'key' => $key,
                 'label' => (string) ($it['label'] ?? $it['title'] ?? $key),
                 'type' => (string) ($it['type'] ?? 'text'),
                 'lang' => !empty($it['lang']),
                 'enabled' => !isset($it['enabled']) || (bool) $it['enabled'],
+                'scope' => $scope,
             ];
         }
         return $out;
@@ -183,7 +187,7 @@ final class AwCpfClient
                 'Content-Type: application/json; charset=utf-8',
                 'X-API-Key: ' . $this->apiKey(),
             ],
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
         if (class_exists(\Composer\CaBundle\CaBundle::class)) {
             $caPath = \Composer\CaBundle\CaBundle::getBundledCaBundlePath();
@@ -228,7 +232,7 @@ final class AwCpfClient
                 'Accept: application/json',
                 'X-API-Key: ' . $this->apiKey(),
             ],
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
         if (class_exists(\Composer\CaBundle\CaBundle::class)) {
             $caPath = \Composer\CaBundle\CaBundle::getBundledCaBundlePath();

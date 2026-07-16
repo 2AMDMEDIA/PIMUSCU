@@ -1007,11 +1007,13 @@ final class ProductDetailController extends BaseController
             $this->redirect($back);
         }
 
-        // Schema pour connaître les champs lang.
+        // Schema pour connaître les champs lang + scope (product vs combination).
         $langByField = [];
+        $scopeByField = [];
         try {
             foreach ($aw->fetchSchema() as $f) {
                 $langByField[$f['key']] = !empty($f['lang']);
+                $scopeByField[$f['key']] = (string) ($f['scope'] ?? 'combination');
             }
         } catch (\Throwable $e) {
             error_log('syncMapping fetchSchema failed: ' . $e->getMessage());
@@ -1028,10 +1030,13 @@ final class ProductDetailController extends BaseController
 
         $batch = [];
         $fetchErrors = [];
+        // Dedupe des champs product-level : on ne les pousse qu'UNE fois par produit,
+        // pas une fois par SKU/décli (id_product_attribute = 0).
+        $productScopePushed = []; // set de cpfField deja envoye au niveau produit
         foreach ($catRows as $catRow) {
             $sku = (string) ($catRow['sku'] ?? '');
             if ($sku === '') continue;
-            $idProductAttr = (int) ($catRow['presta_combination_id'] ?? 0);
+            $comboId = (int) ($catRow['presta_combination_id'] ?? 0);
 
             $nutrifacts = null;
             if ($needsNutrifacts && $customMappings !== []) {
@@ -1046,6 +1051,20 @@ final class ProductDetailController extends BaseController
             foreach ($customMappings as $srcKey => $cpfField) {
                 $val = self::resolveSourceValue($srcKey, $catRow, $nutrifacts);
                 if ($val === null || $val === '') continue;
+
+                $scope = $scopeByField[$cpfField] ?? 'combination';
+                // Champ product-level : id_product_attribute = 0, on skip s'il a
+                // deja ete pousse par un SKU precedent (evite doublons inutiles).
+                if ($scope === 'product') {
+                    if (isset($productScopePushed[$cpfField])) continue;
+                    $productScopePushed[$cpfField] = true;
+                    $idProductAttr = 0;
+                } else {
+                    // Champ combination-level : id_product_attribute = décli du SKU
+                    // (0 si produit simple sans décli).
+                    $idProductAttr = $comboId;
+                }
+
                 $update = [
                     'id_product' => $prestaProductId,
                     'id_product_attribute' => $idProductAttr,

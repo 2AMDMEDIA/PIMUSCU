@@ -225,9 +225,12 @@ final class SettingsController extends BaseController
                     foreach ($schema as $f) {
                         if (empty($f['enabled'])) continue;
                         $label = $f['label'] !== '' ? $f['label'] : $f['key'];
+                        $meta = $f['type']
+                            . ($f['lang'] ? ', lang' : '')
+                            . ', scope=' . ($f['scope'] ?? 'combination');
                         $customFields[] = [
                             'key' => 'custom.' . $f['key'],
-                            'label' => $label . ' (' . $f['type'] . ($f['lang'] ? ', lang' : '') . ')',
+                            'label' => $label . ' (' . $meta . ')',
                         ];
                     }
                 }
@@ -400,7 +403,7 @@ final class SettingsController extends BaseController
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT => 8,
-                CURLOPT_USERAGENT => 'PIM-Musculation-Diag/0.1',
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation-Diag/0.1',
             ]);
             $ip = curl_exec($ch);
             $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -437,7 +440,7 @@ final class SettingsController extends BaseController
             CURLOPT_CONNECTTIMEOUT => 30,
             CURLOPT_TIMEOUT => 45,
             CURLOPT_HTTPHEADER => array_merge(['Accept: */*'], $headers),
-            CURLOPT_USERAGENT => 'PIM-Musculation-Diag/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation-Diag/0.1',
         ];
         if (class_exists(\Composer\CaBundle\CaBundle::class)) {
             $caPath = \Composer\CaBundle\CaBundle::getBundledCaBundlePath();

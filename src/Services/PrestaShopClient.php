@@ -875,7 +875,7 @@ XML;
             CURLOPT_HTTPHEADER => [
                 'Accept: ' . ($asJson ? 'application/json, application/xml' : 'application/xml'),
             ],
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
 
         // CA bundle : on tente plusieurs sources dans l'ordre (env, ini, default Composer/curl)
@@ -1479,7 +1479,7 @@ XML;
                 CURLOPT_POSTFIELDS => ['image' => new \CURLFile($tmpPath, $mime, 'variant.' . $ext)],
                 CURLOPT_USERPWD => $this->apiKey() . ':',
                 CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
-                CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
             ];
             $caPath = $this->resolveCaBundlePath();
             if ($caPath !== null) {
@@ -1527,7 +1527,7 @@ XML;
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TIMEOUT => 60,
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
         $caPath = $this->resolveCaBundlePath();
         if ($caPath !== null) {
@@ -1565,7 +1565,7 @@ XML;
                 'Content-Type: application/xml',
                 'Accept: application/xml',
             ],
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
         if ($xmlBody !== null) {
             $options[CURLOPT_POSTFIELDS] = $xmlBody;
@@ -1617,7 +1617,7 @@ XML;
                 'Content-Type: application/xml',
                 'Accept: application/xml',
             ],
-            CURLOPT_USERAGENT => 'PIM-Musculation/0.1',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 PIM-Musculation/0.1',
         ];
 
         $caPath = $this->resolveCaBundlePath();
