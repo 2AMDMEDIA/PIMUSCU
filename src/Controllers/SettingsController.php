@@ -22,6 +22,7 @@ use App\Services\AwCpfClient;
 use App\Services\ClientResolver;
 use App\Services\Mailer;
 use App\Services\PrestaShopClient;
+use App\Services\AdvancedPackApiFileGenerator;
 use App\Services\ReviewsApiFileGenerator;
 use App\Bootstrap;
 use App\Session;
@@ -165,6 +166,7 @@ final class SettingsController extends BaseController
             $data['has_blog_api_key'] = $client->prestashopBlogApiKeyEncrypted !== null;
             $data['has_reviews_api_key'] = $client->prestashopReviewsApiKeyEncrypted !== null;
             $data['has_aw_cpf_api_key'] = $client->awCpfApiKeyEncrypted !== null;
+            $data['has_advanced_pack_api_key'] = $client->advancedPackApiKeyEncrypted !== null;
             // Liste des catégories Presta (pour le sélecteur "catégories à ignorer").
             // Lue depuis le CACHE LOCAL presta_categories (rafraîchi par
             // Catégories → Synchroniser) → instantané, aucun appel API.
@@ -271,6 +273,8 @@ final class SettingsController extends BaseController
         $reviewsApiKey = $reviewsApiKey !== null ? trim($reviewsApiKey) : null;
         $awCpfApiKey = $this->input('aw_cpf_api_key');
         $awCpfApiKey = $awCpfApiKey !== null ? trim($awCpfApiKey) : null;
+        $advancedPackApiKey = $this->input('advanced_pack_api_key');
+        $advancedPackApiKey = $advancedPackApiKey !== null ? trim($advancedPackApiKey) : null;
         $supplierIdRaw = $this->input('supplier_id');
         $referencePrefix = $this->input('reference_prefix');
         $referencePrefix = $referencePrefix !== null ? trim($referencePrefix) : null;
@@ -296,6 +300,10 @@ final class SettingsController extends BaseController
         if ($awCpfApiKey !== null && $awCpfApiKey !== '') {
             $sets[] = 'aw_cpf_api_key_encrypted = :aw_cpf_api_key';
             $params[':aw_cpf_api_key'] = Encryption::encrypt($awCpfApiKey);
+        }
+        if ($advancedPackApiKey !== null && $advancedPackApiKey !== '') {
+            $sets[] = 'advanced_pack_api_key_encrypted = :advanced_pack_api_key';
+            $params[':advanced_pack_api_key'] = Encryption::encrypt($advancedPackApiKey);
         }
 
         // supplier_id : toujours mis à jour (peut être vidé en saisissant chaîne vide)
@@ -533,6 +541,29 @@ final class SettingsController extends BaseController
 
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="api_reviews.php"');
+        header('Content-Length: ' . strlen($php));
+        echo $php;
+        exit;
+    }
+
+    /**
+     * Télécharge le fichier api_advancedpack.php avec la clé partagée pré-remplie.
+     */
+    public function downloadAdvancedPackApiFile(): void
+    {
+        Auth::require();
+        $client = $this->requireClientOrRedirect();
+
+        if ($client->advancedPackApiKeyEncrypted === null) {
+            $this->flashError('Configurez d\'abord une clé API Advanced Pack dans les paramètres, puis téléchargez le fichier.');
+            $this->redirect('/settings?tab=prestashop');
+        }
+
+        $apiKey = Encryption::decrypt($client->advancedPackApiKeyEncrypted);
+        $php = AdvancedPackApiFileGenerator::generate($apiKey);
+
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="api_advancedpack.php"');
         header('Content-Length: ' . strlen($php));
         echo $php;
         exit;

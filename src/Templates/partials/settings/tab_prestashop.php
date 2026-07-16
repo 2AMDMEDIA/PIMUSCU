@@ -7,6 +7,7 @@ use App\Helpers\Renderer;
  * @var bool $has_blog_api_key
  * @var bool $has_reviews_api_key
  * @var bool $has_aw_cpf_api_key
+ * @var bool $has_advanced_pack_api_key
  * @var string $csrf_token
  */
 ?>
@@ -97,6 +98,39 @@ use App\Helpers\Renderer;
                         Récupérable côté Presta via <code>SELECT value FROM ps_configuration WHERE name = 'AW_CPF_API_KEY'</code>.
                     </span>
                 </label>
+
+                <label class="field">
+                    <span class="field__label">
+                        Clé API Advanced Pack (packs non natifs)
+                        <?php if ($has_advanced_pack_api_key ?? false): ?>
+                            <span class="badge badge--green" style="margin-left:6px;">Configurée</span>
+                        <?php endif; ?>
+                    </span>
+                    <input type="password" name="advanced_pack_api_key"
+                           placeholder="<?= ($has_advanced_pack_api_key ?? false) ? 'Laisser vide pour conserver l\'actuelle' : 'Choisissez une clé secrète (partagée avec le fichier PHP à uploader)' ?>"
+                           autocomplete="off">
+                    <span class="field__hint">
+                        Clé secrète que <strong>tu choisis</strong>. Elle sert à sécuriser le fichier <code>api_advancedpack.php</code>
+                        à uploader à la racine du shop. Le PIM appellera ce fichier au sync produits pour récupérer
+                        la liste des packs du module <em>Advanced Pack</em> (202 ecommerce) qui ne sont pas visibles
+                        via le Webservice PrestaShop natif.
+                    </span>
+                </label>
+
+                <?php if ($has_advanced_pack_api_key ?? false): ?>
+                    <div style="padding: 12px; background:#f0f9ff; border:1px solid #bfdbfe; border-radius:8px;">
+                        <strong style="font-size:13px;">📄 Fichier <code>api_advancedpack.php</code></strong>
+                        <p style="font-size:13px; color:var(--color-text-muted); margin: 6px 0 10px;">
+                            Télécharge ce fichier puis upload-le à la <strong>racine de PrestaShop</strong>
+                            (au même niveau que <code>config/</code>). Le PIM interroge ce fichier au sync
+                            produits pour détecter les packs Advanced Pack et les marquer comme <code>pack</code>
+                            dans la liste des produits.
+                        </p>
+                        <a href="/settings/prestashop/download-advanced-pack-api" class="btn btn--secondary btn--sm">
+                            ⬇ Télécharger api_advancedpack.php
+                        </a>
+                    </div>
+                <?php endif; ?>
 
                 <label class="field">
                     <span class="field__label">ID Fournisseur</span>

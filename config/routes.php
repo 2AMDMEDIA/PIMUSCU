@@ -55,6 +55,7 @@ return [
     ['POST', '/settings/prestashop', [SettingsController::class, 'savePrestashop'], true],
     ['POST', '/settings/prestashop/test', [SettingsController::class, 'testPrestashopConnection'], true],
     ['GET',  '/settings/prestashop/download-reviews-api', [SettingsController::class, 'downloadReviewsApiFile'], true],
+    ['GET',  '/settings/prestashop/download-advanced-pack-api', [SettingsController::class, 'downloadAdvancedPackApiFile'], true],
     ['POST', '/settings/account', [SettingsController::class, 'saveAccount'], true],
     ['POST', '/settings/users/invite', [SettingsController::class, 'inviteUser'], true],
     ['POST', '/settings/users/{userId}/unlink', [SettingsController::class, 'unlinkUser'], true],

@@ -14,6 +14,7 @@ final class Client
         public ?string $prestashopBlogApiKeyEncrypted,
         public ?string $prestashopReviewsApiKeyEncrypted,
         public ?string $awCpfApiKeyEncrypted,
+        public ?string $advancedPackApiKeyEncrypted,
         public ?int $supplierId,
         public ?string $referencePrefix,
         public ?array $enabledAttributeGroupIds,
@@ -42,6 +43,7 @@ final class Client
             prestashopBlogApiKeyEncrypted: $row['prestashop_blog_api_key_encrypted'] ?? null,
             prestashopReviewsApiKeyEncrypted: $row['prestashop_reviews_api_key_encrypted'] ?? null,
             awCpfApiKeyEncrypted: $row['aw_cpf_api_key_encrypted'] ?? null,
+            advancedPackApiKeyEncrypted: $row['advanced_pack_api_key_encrypted'] ?? null,
             supplierId: isset($row['supplier_id']) && $row['supplier_id'] !== null ? (int) $row['supplier_id'] : null,
             referencePrefix: isset($row['reference_prefix']) && $row['reference_prefix'] !== null && $row['reference_prefix'] !== ''
                 ? (string) $row['reference_prefix'] : null,

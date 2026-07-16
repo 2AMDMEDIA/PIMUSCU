@@ -8,6 +8,7 @@ use App\Helpers\Csrf;
 use App\Middleware\Auth;
 use App\Repositories\PrestaProductCombinationRepository;
 use App\Repositories\PrestaProductRepository;
+use App\Services\AdvancedPackClient;
 use App\Services\ClientResolver;
 use App\Services\PrestaShopClient;
 use App\Services\ReviewsClient;
@@ -153,6 +154,20 @@ final class ProductsController extends BaseController
             $count = count($syncedIds);
             $purgedCount = $repo->deleteStale($client->id, $syncedIds);
 
+            // Marquage des packs Advanced Pack (module 202 ecommerce) : le
+            // fichier api_advancedpack.php a la racine PS retourne les id_product
+            // qui sont des packs. On les surcharge en product_type='pack'.
+            $advPackCount = 0;
+            $advPack = new AdvancedPackClient($client);
+            if ($advPack->isConfigured()) {
+                try {
+                    $packIds = $advPack->fetchPackIds();
+                    $advPackCount = $repo->markAsPack($client->id, $packIds);
+                } catch (\Throwable $e) {
+                    error_log('Sync Advanced Pack failed: ' . $e->getMessage());
+                }
+            }
+
             // Sync des combinaisons (déclinaisons taille/saveur/couleur).
             // Best-effort : si ça casse, on log et on continue (les produits sont déjà sync).
             $combinationCount = 0;
@@ -245,6 +260,9 @@ final class ProductsController extends BaseController
             }
             if ($promoCount > 0) {
                 $msg .= ' ' . $promoCount . ' promo' . ($promoCount > 1 ? 's' : '') . ' active' . ($promoCount > 1 ? 's' : '') . '.';
+            }
+            if ($advPackCount > 0) {
+                $msg .= ' ' . $advPackCount . ' pack' . ($advPackCount > 1 ? 's' : '') . ' Advanced Pack marqué' . ($advPackCount > 1 ? 's' : '') . '.';
             }
             if ($imagesCount > 0) {
                 $msg .= ' Images fetchées pour ' . $imagesCount . ' nouveau' . ($imagesCount > 1 ? 'x' : '') . ' produit' . ($imagesCount > 1 ? 's' : '') . '.';

@@ -530,6 +530,26 @@ final class PrestaProductRepository
     }
 
     /**
+     * Marque une liste d'id_product comme `pack` (type Advanced Pack ou tout autre).
+     * Utilise dans le sync produits pour surcharger le type detecte via le
+     * fichier api_advancedpack.php.
+     * @param list<int> $prestaIds
+     * @return int Nombre de lignes mises a jour
+     */
+    public function markAsPack(string $clientId, array $prestaIds): int
+    {
+        $prestaIds = array_values(array_unique(array_filter(array_map('intval', $prestaIds), fn($i) => $i > 0)));
+        if ($prestaIds === []) return 0;
+        $placeholders = implode(',', array_fill(0, count($prestaIds), '?'));
+        $stmt = $this->pdo()->prepare(
+            'UPDATE presta_products SET product_type = "pack"
+              WHERE client_id = ? AND presta_id IN (' . $placeholders . ')'
+        );
+        $stmt->execute(array_merge([$clientId], $prestaIds));
+        return $stmt->rowCount();
+    }
+
+    /**
      * Retourne les presta_id des produits du client dont image_ids est NULL
      * (jamais fetché). Sert au sync produits pour ne fetcher que ceux-là.
      * @return list<int>
