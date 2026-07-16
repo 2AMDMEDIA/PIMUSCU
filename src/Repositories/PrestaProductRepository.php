@@ -59,7 +59,7 @@ final class PrestaProductRepository
      *
      * @return array{0:list<string>, 1:array<string,mixed>}
      */
-    private function buildWhere(string $clientId, string $search, string $filter, string $status, int $categoryId = 0, string $catalog = 'all'): array
+    private function buildWhere(string $clientId, string $search, string $filter, string $status, int $categoryId = 0, string $catalog = 'all', string $type = 'all'): array
     {
         $where = ['client_id = :client_id'];
         $params = [':client_id' => $clientId];
@@ -104,6 +104,11 @@ final class PrestaProductRepository
             $params[':cid_cat'] = $clientId;
         }
 
+        if (in_array($type, ['standard', 'pack', 'virtual'], true)) {
+            $where[] = 'product_type = :ptype';
+            $params[':ptype'] = $type;
+        }
+
         return [$where, $params];
     }
 
@@ -115,9 +120,9 @@ final class PrestaProductRepository
      * @param int    $categoryId  presta_id de la catégorie (0 = pas de filtre)
      * @return list<array<string,mixed>>
      */
-    public function listForClient(string $clientId, string $search = '', string $filter = 'all', int $page = 1, int $perPage = 60, string $status = 'all', int $categoryId = 0, string $catalog = 'all'): array
+    public function listForClient(string $clientId, string $search = '', string $filter = 'all', int $page = 1, int $perPage = 60, string $status = 'all', int $categoryId = 0, string $catalog = 'all', string $type = 'all'): array
     {
-        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog);
+        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog, $type);
         $offset = max(0, ($page - 1) * $perPage);
 
         $sql = 'SELECT * FROM presta_products WHERE ' . implode(' AND ', $where) . ' ORDER BY name ASC LIMIT :limit OFFSET :offset';
@@ -131,9 +136,9 @@ final class PrestaProductRepository
         return $stmt->fetchAll();
     }
 
-    public function countForClient(string $clientId, string $search = '', string $filter = 'all', string $status = 'all', int $categoryId = 0, string $catalog = 'all'): int
+    public function countForClient(string $clientId, string $search = '', string $filter = 'all', string $status = 'all', int $categoryId = 0, string $catalog = 'all', string $type = 'all'): int
     {
-        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog);
+        [$where, $params] = $this->buildWhere($clientId, $search, $filter, $status, $categoryId, $catalog, $type);
         $sql = 'SELECT COUNT(*) FROM presta_products WHERE ' . implode(' AND ', $where);
         $stmt = $this->pdo()->prepare($sql);
         $stmt->execute($params);
@@ -241,6 +246,20 @@ final class PrestaProductRepository
         $catStmt->execute([':cid' => $clientId]);
         $catalogPresent = (int) $catStmt->fetchColumn();
 
+        // Comptages par type (standard / pack / virtual).
+        $typeCounts = ['standard' => 0, 'pack' => 0, 'virtual' => 0];
+        $typeStmt = $this->pdo()->prepare(
+            'SELECT COALESCE(product_type, "standard") AS pt, COUNT(*) AS n
+               FROM presta_products
+              WHERE client_id = :cid
+              GROUP BY COALESCE(product_type, "standard")'
+        );
+        $typeStmt->execute([':cid' => $clientId]);
+        foreach ($typeStmt->fetchAll() as $r) {
+            $key = (string) $r['pt'];
+            if (isset($typeCounts[$key])) $typeCounts[$key] = (int) $r['n'];
+        }
+
         $total = (int) $row['total'];
         return [
             'total' => $total,
@@ -251,6 +270,9 @@ final class PrestaProductRepository
             'inactive' => (int) $row['inactive_count'],
             'catalog_in' => $catalogPresent,
             'catalog_out' => max(0, $total - $catalogPresent),
+            'type_standard' => $typeCounts['standard'],
+            'type_pack' => $typeCounts['pack'],
+            'type_virtual' => $typeCounts['virtual'],
         ];
     }
 
@@ -349,11 +371,11 @@ final class PrestaProductRepository
     public function upsertBatch(string $clientId, array $products): int
     {
         $sql = 'INSERT INTO presta_products
-                  (id, client_id, presta_id, reference, supplier_reference, name, manufacturer_name, price, wholesale_price, active, presta_category_id,
+                  (id, client_id, presta_id, reference, supplier_reference, name, manufacturer_name, price, wholesale_price, active, product_type, presta_category_id,
                    description_short, description, meta_title, meta_description, meta_keywords,
                    has_cms_content, has_description, image_url, link_rewrite, synced_at)
                 VALUES
-                  (:id, :client_id, :presta_id, :reference, :supplier_ref, :name, :manufacturer, :price, :wholesale, :active, :cat_id,
+                  (:id, :client_id, :presta_id, :reference, :supplier_ref, :name, :manufacturer, :price, :wholesale, :active, :ptype, :cat_id,
                    :desc_short, :description, :meta_title, :meta_desc, :meta_kw,
                    :has_cms, :has_desc, :image_url, :link_rewrite, NOW())
                 ON DUPLICATE KEY UPDATE
@@ -361,6 +383,7 @@ final class PrestaProductRepository
                   supplier_reference = VALUES(supplier_reference),
                   name = VALUES(name),
                   manufacturer_name = VALUES(manufacturer_name),
+                  product_type = VALUES(product_type),
                   price = VALUES(price),
                   wholesale_price = VALUES(wholesale_price),
                   active = VALUES(active),
@@ -395,6 +418,7 @@ final class PrestaProductRepository
                     ':price' => $p['price'] ?? 0,
                     ':wholesale' => $p['wholesale_price'] ?? 0,
                     ':active' => $p['active'] ?? 1,
+                    ':ptype' => (!empty($p['product_type'])) ? $p['product_type'] : 'standard',
                     ':cat_id' => $catId > 0 ? $catId : null,
                     ':desc_short' => $p['description_short'] ?? null,
                     ':description' => $p['description'] ?? null,

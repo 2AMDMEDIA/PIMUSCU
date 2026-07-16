@@ -26,12 +26,13 @@ use App\Helpers\Renderer;
 
 /**
  * @var list<array<string,mixed>> $products
- * @var array{total:int,with_desc:int,without_desc:int,cms:int,active:int,inactive:int,catalog_in:int,catalog_out:int} $stats
+ * @var array{total:int,with_desc:int,without_desc:int,cms:int,active:int,inactive:int,catalog_in:int,catalog_out:int,type_standard:int,type_pack:int,type_virtual:int} $stats
  * @var int $total_filtered
  * @var string $search
  * @var string $filter
  * @var string $status
  * @var string $catalog
+ * @var string $type
  * @var int $category
  * @var list<array{presta_id:int,name:string,product_count:int}> $category_options
  * @var int $page
@@ -40,14 +41,16 @@ use App\Helpers\Renderer;
  * @var string $csrf_token
  */
 
-// Helper pour construire les URLs en préservant les autres params (filter, status, catalog, category, q)
-$buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int $newPage = null, ?int $newCategory = null, ?string $newCatalog = null) use ($filter, $status, $catalog, $category, $search) {
+// Helper pour construire les URLs en préservant les autres params (filter, status, catalog, type, category, q)
+$buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int $newPage = null, ?int $newCategory = null, ?string $newCatalog = null, ?string $newType = null) use ($filter, $status, $catalog, $type, $category, $search) {
     $q = [
         'filter' => $newFilter ?? $filter,
         'status' => $newStatus ?? $status,
     ];
     $cat = $newCatalog ?? $catalog;
     if ($cat !== 'all' && $cat !== '') $q['catalog'] = $cat;
+    $t = $newType ?? $type;
+    if ($t !== 'all' && $t !== '') $q['type'] = $t;
     $catVal = $newCategory ?? $category;
     if ($catVal > 0) $q['category'] = $catVal;
     if ($newPage !== null) $q['page'] = $newPage;
@@ -108,6 +111,7 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
         <input type="hidden" name="filter" value="<?= Renderer::escape($filter) ?>">
         <input type="hidden" name="status" value="<?= Renderer::escape($status) ?>">
         <input type="hidden" name="catalog" value="<?= Renderer::escape($catalog) ?>">
+        <input type="hidden" name="type" value="<?= Renderer::escape($type) ?>">
 
         <button type="submit" class="btn btn--secondary btn--sm">Rechercher</button>
         <?php if ($search !== '' || $category > 0): ?>
@@ -165,6 +169,28 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
            class="filter-pill <?= $catalog === 'out' ? 'filter-pill--active' : '' ?>"
            title="Produits non liés au catalogue Nutriweb">
             ✕ Absent catalogue (<?= (int) ($stats['catalog_out'] ?? 0) ?>)
+        </a>
+
+        <span style="border-left:1px solid var(--color-border); margin: 0 4px;"></span>
+
+        <a href="<?= Renderer::escape($buildUrl(newType: 'all')) ?>"
+           class="filter-pill <?= $type === 'all' ? 'filter-pill--active' : '' ?>">
+            Tous types
+        </a>
+        <a href="<?= Renderer::escape($buildUrl(newType: 'standard')) ?>"
+           class="filter-pill <?= $type === 'standard' ? 'filter-pill--active' : '' ?>"
+           title="Produits physiques classiques">
+            📦 Standard (<?= (int) ($stats['type_standard'] ?? 0) ?>)
+        </a>
+        <a href="<?= Renderer::escape($buildUrl(newType: 'pack')) ?>"
+           class="filter-pill <?= $type === 'pack' ? 'filter-pill--active' : '' ?>"
+           title="Packs (regroupement de plusieurs produits)">
+            🎁 Pack (<?= (int) ($stats['type_pack'] ?? 0) ?>)
+        </a>
+        <a href="<?= Renderer::escape($buildUrl(newType: 'virtual')) ?>"
+           class="filter-pill <?= $type === 'virtual' ? 'filter-pill--active' : '' ?>"
+           title="Produits virtuels (digitaux, service)">
+            💾 Virtuel (<?= (int) ($stats['type_virtual'] ?? 0) ?>)
         </a>
     </div>
 
@@ -228,6 +254,21 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
                         <?php if (!empty($p['supplier_reference'])): ?>
                             <div class="product-card__supplier-ref" title="Référence fournisseur">
                                 🏭 <?= Renderer::escape((string) $p['supplier_reference']) ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php
+                            $pt = (string) ($p['product_type'] ?? 'standard');
+                            $ptBadge = [
+                                'standard' => ['📦 Standard', 'background:#e5e7eb;color:#374151;'],
+                                'pack'     => ['🎁 Pack',     'background:#fef3c7;color:#92400e;'],
+                                'virtual'  => ['💾 Virtuel',  'background:#dbeafe;color:#1e40af;'],
+                            ][$pt] ?? null;
+                        ?>
+                        <?php if ($ptBadge !== null && $pt !== 'standard'): ?>
+                            <div style="margin-top:4px;">
+                                <span style="display:inline-block; font-size:10px; padding:2px 6px; border-radius:4px; font-weight:600; <?= $ptBadge[1] ?>" title="Type de produit PrestaShop">
+                                    <?= Renderer::escape($ptBadge[0]) ?>
+                                </span>
                             </div>
                         <?php endif; ?>
                         <div class="product-card__footer">

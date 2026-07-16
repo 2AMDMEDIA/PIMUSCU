@@ -38,12 +38,16 @@ final class ProductsController extends BaseController
         if (!in_array($catalog, ['all', 'in', 'out'], true)) {
             $catalog = 'all';
         }
+        $type = (string) ($this->input('type') ?? 'all');
+        if (!in_array($type, ['all', 'standard', 'pack', 'virtual'], true)) {
+            $type = 'all';
+        }
         $categoryId = (int) ($this->input('category') ?? '0');
         if ($categoryId < 0) $categoryId = 0;
         $page = max(1, (int) ($this->input('page') ?? '1'));
 
-        $products = $repo->listForClient($client->id, $search, $filter, $page, self::PER_PAGE, $status, $categoryId, $catalog);
-        $totalFiltered = $repo->countForClient($client->id, $search, $filter, $status, $categoryId, $catalog);
+        $products = $repo->listForClient($client->id, $search, $filter, $page, self::PER_PAGE, $status, $categoryId, $catalog, $type);
+        $totalFiltered = $repo->countForClient($client->id, $search, $filter, $status, $categoryId, $catalog, $type);
         $stats = $repo->statsForClient($client->id);
         $categoryOptions = $repo->categoriesWithProductCounts($client->id);
         $totalPages = (int) max(1, ceil($totalFiltered / self::PER_PAGE));
@@ -56,6 +60,7 @@ final class ProductsController extends BaseController
             'filter' => $filter,
             'status' => $status,
             'catalog' => $catalog,
+            'type' => $type,
             'category' => $categoryId,
             'category_options' => $categoryOptions,
             'page' => $page,

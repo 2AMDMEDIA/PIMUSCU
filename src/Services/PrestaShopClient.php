@@ -200,7 +200,7 @@ final class PrestaShopClient
      */
     public function fetchProductsBatch(int $offset, int $limit, ?int $filterId = null): array
     {
-        $display = '[id,reference,name,manufacturer_name,price,wholesale_price,active,description,description_short,'
+        $display = '[id,reference,name,manufacturer_name,price,wholesale_price,active,product_type,is_virtual,cache_is_pack,description,description_short,'
             . 'meta_title,meta_description,meta_keywords,link_rewrite,id_default_image,id_category_default]';
         $query = [
             'display' => $display,
@@ -237,11 +237,25 @@ final class PrestaShopClient
                 }
             }
 
+            // Type de produit : PS 1.7+ expose product_type directement.
+            // Fallback pour anciens : deduit via is_virtual + cache_is_pack.
+            $ptRaw = trim((string) ($row['product_type'] ?? ''));
+            if (in_array($ptRaw, ['standard', 'pack', 'virtual'], true)) {
+                $productType = $ptRaw;
+            } elseif ((int) ($row['is_virtual'] ?? 0) === 1) {
+                $productType = 'virtual';
+            } elseif ((int) ($row['cache_is_pack'] ?? 0) === 1) {
+                $productType = 'pack';
+            } else {
+                $productType = 'standard';
+            }
+
             $result[] = [
                 'id' => $productId,
                 'reference' => (string) ($row['reference'] ?? ''),
                 'name' => $this->extractLanguageValue($row['name'] ?? ''),
                 'manufacturer_name' => trim((string) ($row['manufacturer_name'] ?? '')),
+                'product_type' => $productType,
                 'price' => (float) ($row['price'] ?? 0),
                 'wholesale_price' => (float) ($row['wholesale_price'] ?? 0),
                 'active' => (int) ($row['active'] ?? 1),
