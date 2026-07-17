@@ -151,17 +151,52 @@ foreach ($scannedTables as $tableName) {
     ];
 }
 
-// Detection intelligente : cherche la colonne la plus probable en priorite.
+// Scoring intelligent : combine nom de table + colonne pour trouver le plus
+// probable module 'Advanced Pack' (evite les faux positifs type gift_pack).
+// Bonus nom : advancedpack/advanced_pack (+50) > advanced (+30) > bundle (+15) > pack seul (+5)
+// Bonus colonne : id_product_pack (+30) > id_pack (+25) > id_product (+15) > autre (+5)
+// L'override manuel via ?table=X&column=Y ecrase le scoring.
+$overrideTable = isset($_GET['table']) ? (string) $_GET['table'] : '';
+$overrideColumn = isset($_GET['column']) ? (string) $_GET['column'] : '';
+$colPriority = ['id_product_pack' => 30, 'id_pack' => 25, 'id_product' => 15, 'pack_id' => 12, 'product_id' => 10];
+
 $foundTable = null;
 $foundColumn = null;
-$priorityCols = ['id_product_pack', 'id_product', 'id_pack', 'pack_id', 'product_id'];
-foreach ($tableDetails as $t) {
-    foreach ($priorityCols as $pc) {
-        if (in_array($pc, $t['candidate_id_columns'], true)) {
-            $foundTable = $t['table'];
-            $foundColumn = $pc;
-            break 2;
+$scoring = [];
+
+if ($overrideTable !== '' && $overrideColumn !== '') {
+    // Verifie que la combinaison est valide
+    foreach ($tableDetails as $t) {
+        if ($t['table'] === $overrideTable && in_array($overrideColumn, $t['all_columns'], true)) {
+            $foundTable = $overrideTable;
+            $foundColumn = $overrideColumn;
+            break;
         }
+    }
+} else {
+    foreach ($tableDetails as $t) {
+        $nameScore = 0;
+        $n = strtolower($t['table']);
+        if (strpos($n, 'advancedpack') !== false || strpos($n, 'advanced_pack') !== false) {
+            $nameScore = 50;
+        } elseif (strpos($n, 'advanced') !== false) {
+            $nameScore = 30;
+        } elseif (strpos($n, 'bundle') !== false) {
+            $nameScore = 15;
+        } elseif (strpos($n, 'pack') !== false) {
+            $nameScore = 5;
+        }
+        foreach ($t['candidate_id_columns'] as $col) {
+            $colScore = $colPriority[$col] ?? 3;
+            $total = $nameScore + $colScore;
+            $scoring[] = ['table' => $t['table'], 'column' => $col, 'score' => $total, 'name_score' => $nameScore, 'col_score' => $colScore];
+        }
+    }
+    // Tri decroissant par score
+    usort($scoring, fn($a, $b) => $b['score'] <=> $a['score']);
+    if ($scoring !== []) {
+        $foundTable = $scoring[0]['table'];
+        $foundColumn = $scoring[0]['column'];
     }
 }
 
@@ -179,9 +214,9 @@ if ($foundTable === null) {
             'message' => 'Aucune table Advanced Pack detectee automatiquement.',
             'db_prefix' => $prefix,
             'tables_scanned' => $tableDetails,
+            'scoring' => $scoring,
             'patterns_used' => $patterns,
-            'priority_columns' => $priorityCols,
-            'help' => 'Regarde les tables ci-dessus. Si ta table Advanced Pack a un autre nom ou une autre colonne d\'id produit, envoie ce JSON au developpeur pour ajuster.',
+            'help' => 'Si le mauvais table est choisi, force-le via ?table=ps_xxx&column=id_xxx&key=...',
         ],
     ]);
     exit;
@@ -207,6 +242,11 @@ echo json_encode([
         'total' => count($ids),
         'source_table' => $foundTable,
         'id_column' => $foundColumn,
+    ],
+    'debug' => [
+        'auto_detected' => $overrideTable === '' || $overrideColumn === '',
+        'top_candidates' => array_slice($scoring, 0, 5),
+        'override_available' => 'Pour forcer une autre table : ?table=ps_xxx&column=id_xxx&key=...',
     ],
 ]);
 ADVPACK_TEMPLATE_END;
