@@ -102,39 +102,67 @@ if (!class_exists('Db')) {
 $db = Db::getInstance();
 $prefix = _DB_PREFIX_;
 
-// Auto-detection de la table Advanced Pack. On teste plusieurs candidats
-// courants (varie selon la version du module).
-$candidates = [
-    // [table_suffix, column_id_pack] — le pack est le PRODUIT qui EST un pack
-    ['ap_pack', 'id_product_pack'],
-    ['advancedpack', 'id_product_pack'],
-    ['advancedpack', 'id_product'],
-    ['ap_pack', 'id_product'],
-    ['advanced_pack', 'id_product_pack'],
-    ['advanced_pack', 'id_product'],
-];
+// Scan dynamique : on cherche TOUTES les tables PS dont le nom contient 'pack'
+// ou 'advanced', puis pour chacune on liste les colonnes. Ca permet de trouver
+// la vraie table sans avoir a deviner le nom.
+$scannedTables = [];
+$patterns = ['%pack%', '%advanced%', '%bundle%'];
+foreach ($patterns as $pat) {
+    $rows = $db->executeS("SHOW TABLES LIKE '" . pSQL($prefix . $pat) . "'");
+    if (is_array($rows)) {
+        foreach ($rows as $r) {
+            $tableName = reset($r);
+            if (!in_array($tableName, $scannedTables, true)) {
+                $scannedTables[] = $tableName;
+            }
+        }
+    }
+}
+sort($scannedTables);
 
+// Pour chaque table trouvee, liste les colonnes qui contiennent 'product' ou 'pack'
+// (candidates a etre l'id du produit qui est un pack).
+$tableDetails = [];
+foreach ($scannedTables as $tableName) {
+    $cols = $db->executeS('SHOW COLUMNS FROM `' . bqSQL($tableName) . '`');
+    $allCols = [];
+    $productCols = [];
+    if (is_array($cols)) {
+        foreach ($cols as $c) {
+            $name = (string) ($c['Field'] ?? '');
+            $allCols[] = $name;
+            if (stripos($name, 'product') !== false || stripos($name, 'pack') !== false) {
+                $productCols[] = $name;
+            }
+        }
+    }
+    // Estime le nombre de lignes (peut etre approximatif via COUNT rapide)
+    $rowCount = null;
+    try {
+        $rowCount = (int) $db->getValue('SELECT COUNT(*) FROM `' . bqSQL($tableName) . '`');
+    } catch (\Throwable $e) {
+        $rowCount = null;
+    }
+    $tableDetails[] = [
+        'table' => $tableName,
+        'row_count' => $rowCount,
+        'all_columns' => $allCols,
+        'candidate_id_columns' => $productCols,
+    ];
+}
+
+// Detection intelligente : cherche la colonne la plus probable en priorite.
 $foundTable = null;
 $foundColumn = null;
-$detectionLog = [];
-foreach ($candidates as [$suffix, $col]) {
-    $tableName = $prefix . $suffix;
-    // Table existe ?
-    $exists = $db->getValue("SHOW TABLES LIKE '" . pSQL($tableName) . "'");
-    if (!$exists) {
-        $detectionLog[] = 'Table ' . $tableName . ' : absente';
-        continue;
+$priorityCols = ['id_product_pack', 'id_product', 'id_pack', 'pack_id', 'product_id'];
+foreach ($tableDetails as $t) {
+    foreach ($priorityCols as $pc) {
+        if (in_array($pc, $t['candidate_id_columns'], true)) {
+            $foundTable = $t['table'];
+            $foundColumn = $pc;
+            break 2;
+        }
     }
-    // Colonne existe ?
-    $colExists = $db->getValue("SHOW COLUMNS FROM `" . bqSQL($tableName) . "` LIKE '" . pSQL($col) . "'");
-    if (!$colExists) {
-        $detectionLog[] = 'Table ' . $tableName . ' : colonne ' . $col . ' absente';
-        continue;
-    }
-    $foundTable = $tableName;
-    $foundColumn = $col;
-    $detectionLog[] = 'Table ' . $tableName . ' : colonne ' . $col . ' TROUVEE';
-    break;
 }
 
 if ($foundTable === null) {
@@ -148,9 +176,12 @@ if ($foundTable === null) {
             'id_column' => null,
         ],
         'debug' => [
-            'message' => 'Aucune table Advanced Pack detectee.',
+            'message' => 'Aucune table Advanced Pack detectee automatiquement.',
             'db_prefix' => $prefix,
-            'candidates_tested' => $detectionLog,
+            'tables_scanned' => $tableDetails,
+            'patterns_used' => $patterns,
+            'priority_columns' => $priorityCols,
+            'help' => 'Regarde les tables ci-dessus. Si ta table Advanced Pack a un autre nom ou une autre colonne d\'id produit, envoie ce JSON au developpeur pour ajuster.',
         ],
     ]);
     exit;
