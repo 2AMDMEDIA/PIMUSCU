@@ -58,6 +58,7 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
     return '/produits?' . http_build_query($q);
 };
 ?>
+<div class="page-fullwidth">
 <div class="page-header">
     <div>
         <h2 class="page-header__title">Produits</h2>
@@ -256,6 +257,9 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
                                 🏭 <?= Renderer::escape((string) $p['supplier_reference']) ?>
                             </div>
                         <?php endif; ?>
+                        <div class="product-card__supplier-ref" title="ID PrestaShop">
+                            🆔 <code>P#<?= (int) $p['presta_id'] ?></code>
+                        </div>
                         <?php
                             $pt = (string) ($p['product_type'] ?? 'standard');
                             $ptBadge = [
@@ -297,3 +301,5 @@ $buildUrl = function (?string $newFilter = null, ?string $newStatus = null, ?int
         <?php endif; ?>
     <?php endif; ?>
 <?php endif; ?>
+</div>
+

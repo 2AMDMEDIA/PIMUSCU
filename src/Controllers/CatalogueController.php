@@ -76,7 +76,11 @@ final class CatalogueController extends BaseController
         }
         if ($search !== '') {
             $needle = mb_strtolower($search);
-            $rows = array_values(array_filter($rows, fn($r) => str_contains(mb_strtolower((string) $r['name']), $needle)));
+            $rows = array_values(array_filter($rows, fn($r) =>
+                str_contains(mb_strtolower((string) $r['name']), $needle)
+                || str_contains(mb_strtolower((string) $r['sku']), $needle)
+                || str_contains(mb_strtolower((string) ($r['barcode'] ?? '')), $needle)
+            ));
         }
         if ($brand !== '') {
             $rows = array_values(array_filter($rows, fn($r) => (string) ($r['brand'] ?? '') === $brand));

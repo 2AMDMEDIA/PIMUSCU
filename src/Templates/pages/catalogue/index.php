@@ -170,7 +170,7 @@ $sortArrow = fn(string $col): string => $sort !== $col ? '<span style="opacity:0
     </div>
 <?php else: ?>
     <form method="GET" action="/catalogue" class="produits-toolbar" style="display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap;">
-        <input type="search" name="q" placeholder="Rechercher dans le nom du produit..." value="<?= Renderer::escape($search) ?>"
+        <input type="search" name="q" placeholder="Rechercher par nom, SKU ou code-barres..." value="<?= Renderer::escape($search) ?>"
                class="produits-search" style="flex:1; min-width:240px; max-width:480px; padding:6px 10px; border:1px solid var(--color-border); border-radius:var(--radius); font-size:13px;">
 
         <select name="brand" onchange="this.form.submit()" style="padding:6px 10px; border:1px solid var(--color-border); border-radius:var(--radius); font-size:13px; background:var(--color-surface); min-width:180px; max-width:280px;" title="Filtrer par marque">
